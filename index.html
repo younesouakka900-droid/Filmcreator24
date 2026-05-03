@@ -135,52 +135,84 @@ window.doRegister = async () => {
   setBL("btn-reg", false);
 };
 
-// ─── LOGIN ───
+// ─── LOGIN (Admin Only) ───
 window.doLogin = async () => {
   const email = V("l-email"), pass = V("l-pass");
-  if(!email||!pass) return toast("⚠️ ملء الحقول مطلوب","w");
+  if(!email||!pass) return toast("⚠️ أدخل الإيميل وكلمة المرور","w");
+  if(email !== "younassouakka@gmail.com") return toast("⛔ هذا الموقع للمشاهدة فقط — لا حاجة لتسجيل الدخول!","w");
   setBL("btn-login", true);
   try{
-    const cr = await signInWithEmailAndPassword(auth, email, pass);
-    if(!cr.user.emailVerified){
-      await signOut(auth);
-      return toast("⚠️ يجب تأكيد البريد الإلكتروني أولاً","w");
-    }
+    await signInWithEmailAndPassword(auth, email, pass);
     closeModal("m-auth");
-    toast("✅ مرحباً بعودتك!");
-  } catch(e){ toast("❌ الإيميل أو كلمة المرور خاطئة","e"); }
+    toast("✅ مرحباً Admin!");
+  } catch(e){
+    toast("❌ كلمة المرور خاطئة","e");
+  }
   setBL("btn-login", false);
 };
 
-// ─── Google Login (Redirect — أفضل على الهاتف) ───
+// ─── Google Login (Admin Only) ───
 window.doGoogleLogin = async () => {
+  const btn = document.getElementById("btn-google");
+  if(btn){ btn.disabled=true; btn.textContent="⏳ جاري..."; }
   try{
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({prompt:"select_account"});
-    await signInWithRedirect(auth, provider);
+    // نحاول Popup أولاً، إذا فشل ننتقل لـ Redirect
+    let result;
+    try{
+      result = await signInWithPopup(auth, provider);
+    } catch(popupErr){
+      if(popupErr.code === "auth/popup-blocked" || popupErr.code === "auth/popup-closed-by-user"){
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+      throw popupErr;
+    }
+    const user = result.user;
+    // Admin check
+    if(user.email !== "younassouakka@gmail.com"){
+      await signOut(auth);
+      toast("⛔ هذا الموقع للمشاهدة فقط — لا حاجة لحساب!","w");
+      if(btn){ btn.disabled=false; btn.textContent="المتابعة بحساب Google"; }
+      return;
+    }
+    const snap = await getDoc(doc(db,"fc_users",user.uid));
+    if(!snap.exists()){
+      await setDoc(doc(db,"fc_users",user.uid),{
+        name: user.displayName||"Admin",
+        email: user.email,
+        role:"admin",
+        watchlist:[], joinDate: serverTimestamp()
+      });
+    }
+    closeModal("m-auth");
+    toast("✅ مرحباً Admin!");
   } catch(e){
-    toast("❌ فشل تسجيل الدخول","e");
+    if(e.code !== "auth/popup-closed-by-user") toast("❌ فشل تسجيل الدخول: "+e.code,"e");
   }
+  if(btn){ btn.disabled=false; btn.textContent="المتابعة بحساب Google"; }
 };
 
-// معالجة نتيجة الـ Redirect بعد العودة للصفحة
+// معالجة نتيجة Redirect إذا تم استخدامه
 getRedirectResult(auth).then(async result => {
   if(!result || !result.user) return;
   const user = result.user;
+  if(user.email !== "younassouakka@gmail.com"){
+    await signOut(auth);
+    toast("⛔ هذا الموقع للمشاهدة فقط!","w");
+    return;
+  }
   const snap = await getDoc(doc(db,"fc_users",user.uid));
   if(!snap.exists()){
     await setDoc(doc(db,"fc_users",user.uid),{
-      name: user.displayName||"مستخدم",
-      email: user.email,
-      watchlist:[], joinDate: serverTimestamp()
+      name: user.displayName||"Admin", email: user.email,
+      role:"admin", watchlist:[], joinDate: serverTimestamp()
     });
   }
-  toast("✅ مرحباً "+(user.displayName||"")+"!");
-}).catch(e => {
-  if(e.code && e.code !== "auth/popup-closed-by-user"){
-    console.error("Redirect error:", e.code);
-  }
-});
+  closeModal("m-auth");
+  toast("✅ مرحباً Admin!");
+}).catch(e => console.warn("Redirect result:", e.code));
 
 // ─── Logout ───
 window.doLogout = async () => {
@@ -1343,7 +1375,7 @@ body.light-mode{
     <button onclick="doSearch()">🔍</button>
   </div>
   <div class="nav-btns">
-    <button class="nav-btn" id="nav-login-btn" onclick="openModal('m-auth')">🔐 دخول</button>
+    <button class="nav-btn" id="nav-login-btn" onclick="openModal('m-auth')" title="دخول المشرف">⚙️</button>
     <div id="nav-user-menu">
       <button class="nav-btn ghost" onclick="openSidebar()" style="width:36px;height:36px;padding:0;justify-content:center;">👤</button>
     </div>
@@ -1362,8 +1394,11 @@ body.light-mode{
   </div>
 
   <div id="sb-login-section">
-    <button class="fsub" onclick="closeSidebar();openModal('m-auth')" style="margin-bottom:.5rem">🔐 تسجيل الدخول</button>
-    <button class="google-btn" onclick="closeSidebar();openModal('m-auth')">إنشاء حساب جديد</button>
+    <div style="background:var(--s2);border:1px solid var(--br);border-radius:10px;padding:1rem;text-align:center;margin-bottom:.5rem;">
+      <div style="font-size:1.3rem;margin-bottom:.4rem">🎬</div>
+      <div style="font-size:.88rem;font-weight:700;margin-bottom:.3rem">مرحباً بك!</div>
+      <div style="font-size:.78rem;color:var(--mu);line-height:1.6">شاهد وحمّل مجاناً بدون حساب</div>
+    </div>
   </div>
 
   <div id="sb-user-section">
@@ -1563,21 +1598,15 @@ body.light-mode{
       المتابعة بحساب Google
     </button>
     <div class="or-div"><span>أو</span></div>
-    <div class="auth-tabs">
-      <button class="atab active" onclick="switchAuthTab('login',this)">تسجيل الدخول</button>
-      <button class="atab" onclick="switchAuthTab('register',this)">إنشاء حساب</button>
+    <div style="background:rgba(229,9,20,.08);border:1px solid rgba(229,9,20,.2);border-radius:10px;padding:.75rem;margin-bottom:1rem;font-size:.82rem;color:rgba(255,255,255,.6);text-align:center;">
+      🎬 المشاهدة والتحميل مجانية بدون حساب<br>
+      <span style="font-size:.75rem;color:var(--mu)">هذه الصفحة للمشرف فقط</span>
     </div>
     <div class="aform active" id="af-login">
       <input class="fi" id="l-email" type="email" placeholder="البريد الإلكتروني">
       <input class="fi" id="l-pass" type="password" placeholder="كلمة المرور" onkeydown="if(event.key==='Enter')doLogin()">
-      <button class="fsub" id="btn-login" onclick="doLogin()">🔐 تسجيل الدخول</button>
+      <button class="fsub" id="btn-login" onclick="doLogin()">🔐 دخول المشرف</button>
       <button onclick="doResetPassword()" style="background:none;border:none;color:var(--mu);font-family:'Tajawal';font-size:.8rem;text-align:center;width:100%;margin-top:.5rem;cursor:pointer;text-decoration:underline;">نسيت كلمة المرور؟</button>
-    </div>
-    <div class="aform" id="af-register">
-      <input class="fi" id="r-name" type="text" placeholder="الاسم">
-      <input class="fi" id="r-email" type="email" placeholder="البريد الإلكتروني">
-      <input class="fi" id="r-pass" type="password" placeholder="كلمة المرور (6 أحرف+)">
-      <button class="fsub" id="btn-reg" onclick="doRegister()">🚀 إنشاء الحساب</button>
     </div>
   </div>
 </div>
