@@ -64,6 +64,21 @@ window._fb = _fb;
 
 // ─── Admin Config ───
 const ADMIN_EMAIL = "younassouakka@gmail.com";
+const CLOUDINARY_CLOUD = "ddogh7kzj";
+const CLOUDINARY_PRESET = "yex2npxo";
+
+// رفع صورة لـ Cloudinary
+async function uploadToCloudinary(file){
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("upload_preset", CLOUDINARY_PRESET);
+  fd.append("folder", "filmcreator24");
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, {method:"POST", body:fd});
+  if(!res.ok) throw new Error("فشل رفع الصورة");
+  const data = await res.json();
+  return data.secure_url;
+}
+window.uploadToCloudinary = uploadToCloudinary;
 function isAdmin(){ return CU && CU.email === ADMIN_EMAIL; }
 window.isAdmin = isAdmin;
 
@@ -107,6 +122,8 @@ function updateNavUI(on){
   const userMenu = G("nav-user-menu"); if(userMenu) userMenu.style.display = on ? "flex" : "none";
   const sbLogin  = G("sb-login-section"); if(sbLogin) sbLogin.style.display = on ? "none" : "block";
   const sbUser   = G("sb-user-section");  if(sbUser)  sbUser.style.display  = on ? "block" : "none";
+  // إظهار/إخفاء تنبيه التعليق
+  const cln = G("comment-login-notice"); if(cln) cln.style.display = on ? "none" : "block";
   if(on && CU){
     const sbName = G("sb-uname"); if(sbName) sbName.textContent = CUD?.name || CU.displayName || "مستخدم";
     const navName = G("nav-uname"); if(navName) navName.textContent = (CUD?.name || CU.displayName || "").split(" ")[0];
@@ -677,13 +694,17 @@ window.loadComments = async (contentId) => {
 };
 
 window.doComment = async () => {
-  if(!CU) return openModal("m-auth");
+  if(!CU){
+    toast("⚠️ يجب تسجيل الدخول أولاً للتعليق","w");
+    setTimeout(()=> openModal("m-auth"), 800);
+    return;
+  }
   const text = V("comment-inp").trim();
   if(!text) return;
   const now = Date.now();
-  if(now - _lastCommentTime < 5000) return toast("⚠️ انتظر قليلاً","w");
+  if(now - _lastCommentTime < 5000) return toast("⚠️ انتظر قليلاً قبل التعليق مجدداً","w");
   _lastCommentTime = now;
-  if(text.length > 500) return toast("⚠️ التعليق طويل جداً","w");
+  if(text.length > 500) return toast("⚠️ التعليق طويل جداً (500 حرف كحد أقصى)","w");
   const id = window._currentContent?.id;
   if(!id) return;
   try{
@@ -693,7 +714,8 @@ window.doComment = async () => {
     });
     G("comment-inp").value = "";
     loadComments(id);
-  } catch(e){ toast("❌ خطأ","e"); }
+    toast("✅ تم نشر تعليقك!");
+  } catch(e){ toast("❌ خطأ في نشر التعليق","e"); }
 };
 
 // ─── SIMILAR ───
@@ -760,6 +782,162 @@ window.resetAddForm = () => {
   G("ac-featured").checked = false;
   G("watch-links-wrap").innerHTML = "";
   G("dl-links-wrap").innerHTML = "";
+  const pp = G("poster-preview-wrap"); if(pp) pp.style.display="none";
+  const lbl = G("poster-upload-label"); if(lbl) lbl.textContent="📁 اختر صورة من هاتفك";
+  const prog = G("poster-upload-progress"); if(prog) prog.style.display="none";
+};
+
+// ─── رفع صورة الغلاف ───
+window.handlePosterUpload = async (input) => {
+  const file = input.files[0];
+  if(!file) return;
+  if(file.size > 5*1024*1024) return toast("⚠️ الصورة أكبر من 5MB","w");
+
+  // preview محلي فوري
+  const reader = new FileReader();
+  reader.onload = e => {
+    const wrap = G("poster-preview-wrap");
+    const img  = G("poster-preview");
+    if(wrap && img){ img.src = e.target.result; wrap.style.display="block"; }
+  };
+  reader.readAsDataURL(file);
+
+  // رفع لـ Cloudinary
+  const prog = G("poster-upload-progress");
+  const bar  = G("poster-progress-bar");
+  const txt  = G("poster-progress-text");
+  const lbl  = G("poster-upload-label");
+  if(prog) prog.style.display="block";
+  if(lbl)  lbl.textContent = "⏳ جاري الرفع...";
+
+  // محاكاة progress
+  let p = 0;
+  const timer = setInterval(()=>{ p=Math.min(p+8,85); if(bar) bar.style.width=p+"%"; }, 200);
+
+  try{
+    const url = await uploadToCloudinary(file);
+    clearInterval(timer);
+    if(bar) bar.style.width="100%";
+    if(txt) txt.textContent="✅ تم الرفع!";
+    if(lbl) lbl.textContent="✅ تم رفع الصورة";
+    const posterInp = G("ac-poster");
+    if(posterInp) posterInp.value = url;
+    toast("✅ تم رفع الصورة!");
+    setTimeout(()=>{ if(prog) prog.style.display="none"; }, 2000);
+  } catch(e){
+    clearInterval(timer);
+    if(prog) prog.style.display="none";
+    if(lbl) lbl.textContent="📁 اختر صورة من هاتفك";
+    toast("❌ فشل رفع الصورة: "+e.message,"e");
+  }
+};
+
+// ─── تعديل محتوى موجود ───
+window.openEditContent = () => {
+  if(!isAdmin()) return;
+  const c = window._currentContent;
+  if(!c) return;
+
+  // ملء الفورم بالبيانات الحالية
+  const setV = (id,val) => { const el=G(id); if(el) el.value=val||""; };
+  setV("ac-title",   c.title);
+  setV("ac-desc",    c.desc);
+  setV("ac-poster",  c.poster);
+  setV("ac-year",    c.year);
+  setV("ac-duration",c.duration);
+  setV("ac-country", c.country);
+  setV("ac-rating",  c.rating);
+  setV("ac-embed",   c.embedUrl);
+  const setS = (id,val) => { const el=G(id); if(el) el.value=val||""; };
+  setS("ac-type",    c.type);
+  setS("ac-genre",   c.genre);
+  setS("ac-quality", c.quality);
+  if(G("ac-featured")) G("ac-featured").checked = c.featured||false;
+
+  // preview الصورة الحالية
+  if(c.poster){
+    const wrap = G("poster-preview-wrap"); const img = G("poster-preview");
+    if(wrap && img){ img.src=c.poster; wrap.style.display="block"; }
+  }
+
+  // روابط المشاهدة
+  const ww = G("watch-links-wrap"); if(ww) ww.innerHTML="";
+  (c.watchLinks||[]).forEach(lnk => {
+    const row = document.createElement("div");
+    row.className="watch-link-row link-row";
+    row.innerHTML=`<input class="fc wl-label" value="${sanitize(lnk.label||"")}"><input class="fc wl-url" value="${sanitize(lnk.url||"")}"><button onclick="this.parentElement.remove()" class="rm-btn">✕</button>`;
+    if(ww) ww.appendChild(row);
+  });
+
+  // روابط التحميل
+  const dw = G("dl-links-wrap"); if(dw) dw.innerHTML="";
+  (c.downloadLinks||[]).forEach(lnk => {
+    const row = document.createElement("div");
+    row.className="dl-link-row link-row";
+    row.innerHTML=`<input class="fc dl-label" value="${sanitize(lnk.label||"")}"><input class="fc dl-url" value="${sanitize(lnk.url||"")}"><button onclick="this.parentElement.remove()" class="rm-btn">✕</button>`;
+    if(dw) dw.appendChild(row);
+  });
+
+  // تغيير زر النشر لزر التحديث
+  const btn = G("btn-add-content");
+  if(btn){
+    btn.textContent = "💾 حفظ التعديلات";
+    btn.onclick = () => doUpdateContent(c.id);
+  }
+  const title = document.querySelector("#m-add-content .mh h2");
+  if(title) title.textContent = "✏️ تعديل العمل";
+
+  closeModal("m-content");
+  openModal("m-add-content");
+};
+
+window.doUpdateContent = async (id) => {
+  if(!isAdmin()) return;
+  const title    = G("ac-title")?.value.trim();
+  const type     = G("ac-type")?.value;
+  if(!title||!type) return toast("⚠️ العنوان والنوع مطلوبان","w");
+
+  const watchLinks = [];
+  document.querySelectorAll('.watch-link-row').forEach(row => {
+    const label=row.querySelector('.wl-label')?.value?.trim();
+    const url=row.querySelector('.wl-url')?.value?.trim();
+    if(label&&url) watchLinks.push({label,url});
+  });
+  const downloadLinks = [];
+  document.querySelectorAll('.dl-link-row').forEach(row => {
+    const label=row.querySelector('.dl-label')?.value?.trim();
+    const url=row.querySelector('.dl-url')?.value?.trim();
+    if(label&&url) downloadLinks.push({label,url});
+  });
+
+  const btn = G("btn-add-content"); if(btn){ btn.disabled=true; btn.textContent="⏳ جاري الحفظ..."; }
+  try{
+    await updateDoc(doc(db,"fc_content",id),{
+      title, type,
+      genre:    G("ac-genre")?.value||"",
+      desc:     G("ac-desc")?.value.trim()||"",
+      poster:   G("ac-poster")?.value.trim()||"",
+      year:     parseInt(G("ac-year")?.value)||null,
+      duration: G("ac-duration")?.value.trim()||"",
+      quality:  G("ac-quality")?.value||"",
+      country:  G("ac-country")?.value.trim()||"",
+      rating:   parseFloat(G("ac-rating")?.value)||null,
+      embedUrl: G("ac-embed")?.value.trim()||"",
+      featured: G("ac-featured")?.checked||false,
+      watchLinks, downloadLinks,
+      updatedAt: serverTimestamp()
+    });
+    toast("✅ تم حفظ التعديلات!");
+    closeModal("m-add-content");
+    resetAddForm();
+    // إعادة زر النشر لحالته الأصلية
+    const b=G("btn-add-content");
+    if(b){ b.textContent="🚀 نشر المحتوى"; b.onclick=()=>doAddContent(); }
+    const t=document.querySelector("#m-add-content .mh h2");
+    if(t) t.textContent="➕ إضافة محتوى جديد";
+    loadContent();
+  } catch(e){ toast("❌ فشل الحفظ: "+e.message,"e"); }
+  if(btn){ btn.disabled=false; }
 };
 
 window.addWatchLinkRow = () => {
@@ -1651,9 +1829,10 @@ body.light-mode{
       <div class="cm-actions-grid" id="cm-watch-btns"></div>
 
       <!-- ADMIN -->
-      <div id="cm-admin-btns" style="display:none;grid-template-columns:1fr 1fr;gap:.5rem;margin-bottom:.9rem">
-        <button class="ca-btn ca-admin-ep" onclick="openModal('m-add-episode')">📺 إضافة حلقة</button>
-        <button class="ca-btn ca-admin-del" onclick="adminDeleteContent()">🗑️ حذف العمل</button>
+      <div id="cm-admin-btns" style="display:none;grid-template-columns:1fr 1fr 1fr;gap:.45rem;margin-bottom:.9rem">
+        <button class="ca-btn ca-admin-ep" onclick="openModal('m-add-episode')" style="font-size:.75rem;padding:.5rem .4rem">📺 حلقة</button>
+        <button class="ca-btn" onclick="openEditContent()" style="background:rgba(16,185,129,.1);border:1.5px solid rgba(16,185,129,.3);color:var(--green);font-size:.75rem;padding:.5rem .4rem">✏️ تعديل</button>
+        <button class="ca-btn ca-admin-del" onclick="adminDeleteContent()" style="font-size:.75rem;padding:.5rem .4rem">🗑️ حذف</button>
       </div>
 
       <!-- EPISODES -->
@@ -1672,8 +1851,11 @@ body.light-mode{
       <div>
         <div class="cm-section-title">💬 التعليقات</div>
         <div style="max-height:250px;overflow-y:auto" id="cm-comments-box"></div>
+        <div id="comment-login-notice" style="display:none;background:rgba(229,9,20,.07);border:1px solid rgba(229,9,20,.2);border-radius:8px;padding:.6rem .9rem;margin-bottom:.5rem;font-size:.8rem;text-align:center;cursor:pointer;" onclick="openModal('m-auth')">
+          🔐 سجّل دخولك للتعليق
+        </div>
         <div class="comment-input-row">
-          <input type="text" id="comment-inp" placeholder="اكتب تعليقك..." maxlength="500" onkeydown="if(event.key==='Enter')doComment()">
+          <input type="text" id="comment-inp" placeholder="اكتب تعليقك..." maxlength="500" onkeydown="if(event.key==='Enter')doComment()" onclick="if(!window.CU){toast('⚠️ يجب تسجيل الدخول أولاً','w');openModal('m-auth');}">
           <button class="comment-send" onclick="doComment()">إرسال</button>
         </div>
       </div>
@@ -1733,7 +1915,25 @@ body.light-mode{
         </div>
       </div>
       <div>
-        <div class="fg"><label>رابط البوستر (صورة الغلاف)</label><input class="fc" id="ac-poster" type="url" placeholder="https://..."></div>
+        <div class="fg">
+          <label>🖼️ صورة الغلاف</label>
+          <div id="poster-preview-wrap" style="display:none;margin-bottom:.5rem;border-radius:10px;overflow:hidden;max-height:180px;text-align:center;">
+            <img id="poster-preview" style="max-height:180px;border-radius:10px;object-fit:cover;" src="" alt="preview">
+          </div>
+          <div style="display:flex;gap:.5rem;align-items:center;">
+            <label for="poster-file-input" style="flex:1;background:rgba(229,9,20,.12);border:1.5px dashed rgba(229,9,20,.4);border-radius:8px;padding:.65rem;text-align:center;cursor:pointer;font-size:.85rem;font-weight:700;color:var(--red);display:block;">
+              <span id="poster-upload-label">📁 اختر صورة من هاتفك</span>
+            </label>
+            <input type="file" id="poster-file-input" accept="image/*" style="display:none" onchange="handlePosterUpload(this)">
+          </div>
+          <input class="fc" id="ac-poster" type="url" placeholder="أو ضع رابط صورة مباشر..." style="margin-top:.5rem;">
+          <div id="poster-upload-progress" style="display:none;margin-top:.4rem;">
+            <div style="background:var(--br);border-radius:4px;height:4px;overflow:hidden;">
+              <div id="poster-progress-bar" style="height:100%;background:var(--red);width:0%;transition:width .3s;border-radius:4px;"></div>
+            </div>
+            <div id="poster-progress-text" style="font-size:.72rem;color:var(--mu);margin-top:.3rem;text-align:center;">جاري الرفع...</div>
+          </div>
+        </div>
         <div class="fg"><label>الوصف</label><textarea class="fc" id="ac-desc" rows="4" placeholder="ملخص القصة..."></textarea></div>
         <div class="fg">
           <label>▶️ رابط Embed للمشاهدة المباشرة (DoodStream...)</label>
