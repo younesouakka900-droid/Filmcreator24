@@ -322,17 +322,18 @@ function defaultHeroSlide(){
     </div></div>`;
 }
 
-let _heroIdx = 0, _heroTimer = null, _heroLen = 0;
+window._heroIdx = 0;
+let _heroTimer = null, _heroLen = 0;
 function startHeroSlider(len){
   _heroLen = len; clearInterval(_heroTimer);
-  if(len > 1) _heroTimer = setInterval(()=> goHeroSlide(_heroIdx+1), 6000);
+  if(len > 1) _heroTimer = setInterval(()=> window.goHeroSlide(window._heroIdx+1), 6000);
 }
 window.goHeroSlide = idx => {
   const slides = document.querySelectorAll('.hslide');
   if(!slides.length) return;
   if(idx < 0) idx = slides.length-1;
   if(idx >= slides.length) idx = 0;
-  _heroIdx = idx;
+  window._heroIdx = idx;
   slides.forEach((s,i) => s.classList.toggle('active', i===idx));
   document.querySelectorAll('.hdot').forEach((d,i) => d.classList.toggle('active', i===idx));
 };
@@ -399,9 +400,21 @@ function contentCard(c, rank){
 window.setFilter = (key, val, el) => {
   window._currentFilters[key] = val;
   if(el){
-    const container = el.closest('.chips-row');
-    if(container) container.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    const container = el.closest('.chips-row, .genre-pills');
+    if(container) container.querySelectorAll('.chip, .gpill').forEach(c => c.classList.remove('active'));
     el.classList.add('active');
+  }
+  // sync genre pills and chips when genre changes
+  if(key === 'genre'){
+    document.querySelectorAll('.genre-pills .gpill').forEach(p => {
+      const onclick = p.getAttribute('onclick')||'';
+      p.classList.toggle('active', onclick.includes(`'${val}'`) || (val==='all' && onclick.includes("'all'")));
+    });
+    document.querySelectorAll('.chips-row .chip').forEach(c => {
+      const onclick = c.getAttribute('onclick')||'';
+      if(onclick.includes("'genre'"))
+        c.classList.toggle('active', onclick.includes(`'${val}'`) || (val==='all' && onclick.includes("'all'")));
+    });
   }
   applyFilters();
 };
@@ -1623,8 +1636,8 @@ body.light-mode{
       </div>
     </div>
     <div class="hero-dots" id="hero-dots"></div>
-    <button class="hero-prev" onclick="goHeroSlide(_heroIdx-1)">›</button>
-    <button class="hero-next" onclick="goHeroSlide(_heroIdx+1)">‹</button>
+    <button class="hero-prev" onclick="window.goHeroSlide(window._heroIdx-1)">›</button>
+    <button class="hero-next" onclick="window.goHeroSlide(window._heroIdx+1)">‹</button>
   </div>
 
   <!-- PLATFORM STATS -->
@@ -1652,7 +1665,7 @@ body.light-mode{
   <div class="section">
     <div class="section-head">
       <div class="section-title">🔥 الأكثر مشاهدة</div>
-      <button class="see-all" onclick="document.getElementById('browse-sec').scrollIntoView({behavior:'smooth'})">عرض الكل ←</button>
+      <button class="see-all" onclick="document.getElementById('browse-sec').scrollIntoView({behavior:'smooth'});window.setFilter('sort','views',null)">عرض الكل ←</button>
     </div>
     <div class="hscroll" id="trending-wrap">
       <div class="empty-s">⏳ جاري التحميل...</div>
