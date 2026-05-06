@@ -614,9 +614,23 @@ window.loadEpisodes = async (workId, c) => {
   if(!wrap) return;
   wrap.innerHTML = '<div class="spin-sm">⏳</div>';
   try{
-    const snap = await getDocs(query(collection(db,"fc_episodes"), where("contentId","==",workId), orderBy("season","asc"), orderBy("episode","asc")));
+    const {db, collection, query, where, orderBy, getDocs, limit} = window._fb();
+    const snap = await getDocs(query(
+      collection(db,"fc_episodes"),
+      where("contentId","==",workId),
+      limit(200)
+    ));
     if(snap.empty){ wrap.innerHTML = '<div style="color:rgba(255,255,255,.35);font-size:.82rem">لا توجد حلقات بعد</div>'; return; }
-    const eps = snap.docs.map(d=>({id:d.id,...d.data()}));
+
+    // فرز محلي + إزالة المكررات (نفس الموسم + نفس رقم الحلقة)
+    let eps = snap.docs.map(d=>({id:d.id,...d.data()}));
+    eps.sort((a,b) => (a.season - b.season) || (a.episode - b.episode));
+    const seen = new Set();
+    eps = eps.filter(ep => {
+      const key = `${ep.season}-${ep.episode}`;
+      if(seen.has(key)) return false;
+      seen.add(key); return true;
+    });
     // تجميع حسب الموسم
     const seasons = {};
     eps.forEach(ep => {
@@ -1978,7 +1992,7 @@ body.light-mode{
     <div style="margin-bottom:.5rem">
       <strong style="color:var(--red)">FilmCreator24</strong> — أفلام ومسلسلات وأنمي مجاناً
     </div>
-    <div>© 2024 جميع الحقوق محفوظة</div>
+    <div>© <span id="footer-year"></span> جميع الحقوق محفوظة</div>
   </footer>
 </div>
 
@@ -2136,7 +2150,7 @@ body.light-mode{
           </select>
         </div>
         <div class="form-2col">
-          <div class="fg"><label>السنة</label><input class="fc" id="ac-year" type="number" placeholder="2024"></div>
+          <div class="fg"><label>السنة</label><input class="fc" id="ac-year" type="number" placeholder="2026"></div>
           <div class="fg"><label>الجودة</label>
             <select class="fc" id="ac-quality"><option value="">اختر</option><option>4K</option><option>1080p</option><option>720p</option><option>480p</option></select>
           </div>
@@ -2407,5 +2421,9 @@ window.loadMoreContent = async () => {
   }catch(e){}
 };
 </script>
+  <script>
+    const fy = document.getElementById('footer-year');
+    if(fy) fy.textContent = new Date().getFullYear();
+  </script>
 </body>
 </html>
