@@ -1039,6 +1039,83 @@ window.doUpdateContent = async (id) => {
   if(btn){ btn.disabled=false; }
 };
 
+// ─── TMDB ───
+const TMDB_KEY = "e638257702594dbdc3513a3ff76bd994";
+const TMDB_IMG = "https://image.tmdb.org/t/p/w500";
+
+window.tmdbSearch = async () => {
+  const q = G("tmdb-search-inp")?.value?.trim();
+  const type = G("tmdb-search-type")?.value || "multi";
+  if(!q) return toast("⚠️ اكتب اسم للبحث","w");
+  setBL("btn-tmdb-search", true);
+  const res = G("tmdb-results");
+  res.innerHTML = '<div style="text-align:center;color:var(--mu);font-size:.82rem">⏳ جاري البحث...</div>';
+  res.style.display = "flex";
+  try{
+    const url = `https://api.themoviedb.org/3/search/${type}?api_key=${TMDB_KEY}&query=${encodeURIComponent(q)}&language=ar&include_adult=false`;
+    const data = await fetch(url).then(r=>r.json());
+    const results = (data.results||[]).slice(0,8);
+    if(!results.length){ res.innerHTML = '<div style="color:var(--mu);font-size:.82rem;text-align:center">لا نتائج — جرب بالإنجليزية</div>'; setBL("btn-tmdb-search",false); return; }
+    res.innerHTML = results.map((r,i)=>{
+      const title = r.title || r.name || "";
+      const year  = (r.release_date || r.first_air_date || "").substring(0,4);
+      const mtype = r.media_type || type;
+      const poster = r.poster_path ? TMDB_IMG+r.poster_path : "";
+      return `<div class="tmdb-result-item" onclick="tmdbFill(${i})">
+        ${poster ? `<img src="${poster}" style="width:36px;height:54px;object-fit:cover;border-radius:4px;flex-shrink:0">` : '<div style="width:36px;height:54px;background:var(--br);border-radius:4px;flex-shrink:0"></div>'}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.85rem;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sanitize(title)}</div>
+          <div style="font-size:.72rem;color:var(--mu)">${year} • ${mtype==='movie'?'فيلم':mtype==='tv'?'مسلسل':'—'} • ⭐${r.vote_average?.toFixed(1)||'—'}</div>
+        </div>
+      </div>`;
+    }).join("");
+    window._tmdbResults = results;
+  } catch(e){ res.innerHTML = '<div style="color:var(--red);font-size:.82rem;text-align:center">❌ فشل البحث</div>'; }
+  setBL("btn-tmdb-search", false);
+};
+
+window.tmdbFill = async (idx) => {
+  const r = window._tmdbResults?.[idx];
+  if(!r) return;
+  const searchType = G("tmdb-search-type")?.value;
+  const isMovie = r.media_type === 'movie' || searchType === 'movie';
+  const type = isMovie ? 'movie' : 'tv';
+  toast("⏳ جاري جلب التفاصيل...");
+  try{
+    const detail = await fetch(`https://api.themoviedb.org/3/${type}/${r.id}?api_key=${TMDB_KEY}&language=ar&append_to_response=credits`).then(r=>r.json());
+    const title = detail.title || detail.name || "";
+    if(G("ac-title")) G("ac-title").value = title;
+    if(G("ac-type")) G("ac-type").value = isMovie ? "أفلام" : "مسلسل";
+    const year = (detail.release_date || detail.first_air_date || "").substring(0,4);
+    if(G("ac-year")) G("ac-year").value = year;
+    if(G("ac-rating") && detail.vote_average) G("ac-rating").value = detail.vote_average.toFixed(1);
+    const country = detail.production_countries?.[0]?.name || detail.origin_country?.[0] || "";
+    if(G("ac-country")) G("ac-country").value = translateCountry(country);
+    if(isMovie && detail.runtime){
+      const h = Math.floor(detail.runtime/60), m = detail.runtime%60;
+      if(G("ac-duration")) G("ac-duration").value = h>0?`${h}س ${m}د`:`${m}د`;
+    } else if(detail.episode_run_time?.[0]){
+      if(G("ac-duration")) G("ac-duration").value = `${detail.episode_run_time[0]}د`;
+    }
+    const genreMap = {"Action":"أكشن","Comedy":"كوميدي","Drama":"دراما","Horror":"رعب","Romance":"رومانسي","Science Fiction":"خيال علمي","Fantasy":"فانتازيا","Crime":"جريمة","Adventure":"مغامرة","Documentary":"وثائقي","Animation":"أنمي","History":"تاريخي","Sport":"رياضي"};
+    const genre = genreMap[detail.genres?.[0]?.name||""] || "";
+    if(G("ac-genre") && genre) G("ac-genre").value = genre;
+    if(G("ac-desc")) G("ac-desc").value = detail.overview || "";
+    if(detail.poster_path){
+      const posterUrl = TMDB_IMG + detail.poster_path;
+      if(G("ac-poster")) G("ac-poster").value = posterUrl;
+      if(G("poster-preview")){ G("poster-preview").src = posterUrl; G("poster-preview-wrap").style.display = "block"; }
+    }
+    G("tmdb-results").style.display = "none";
+    toast(`✅ تم جلب بيانات "${sanitize(title)}"`);
+  } catch(e){ toast("❌ فشل جلب التفاصيل","e"); }
+};
+
+function translateCountry(en){
+  const map = {"United States of America":"أمريكا","United States":"أمريكا","United Kingdom":"بريطانيا","Japan":"اليابان","South Korea":"كوريا الجنوبية","France":"فرنسا","Germany":"ألمانيا","India":"الهند","Spain":"إسبانيا","Italy":"إيطاليا","Canada":"كندا","Australia":"أستراليا","China":"الصين","Turkey":"تركيا"};
+  return map[en] || en;
+}
+
 window.addWatchLinkRow = () => {
   const wrap = G("watch-links-wrap");
   const row = document.createElement("div");
@@ -1667,7 +1744,10 @@ body{
 .srv-btn.active{ background:var(--red); border-color:var(--red); color:#fff; }
 .srv-icon{ font-size:.9rem; }
 
-/* ─── EPISODE MODAL TABS ─── */
+/* ─── TMDB ─── */
+.tmdb-search-box{ background:rgba(1,180,228,.06); border:1.5px solid rgba(1,180,228,.2); border-radius:12px; padding:.9rem; margin-bottom:1rem; }
+.tmdb-result-item{ display:flex; align-items:center; gap:.7rem; background:rgba(255,255,255,.04); border:1px solid var(--br); border-radius:8px; padding:.5rem .7rem; cursor:pointer; transition:all .2s; }
+.tmdb-result-item:hover{ background:rgba(1,180,228,.1); border-color:rgba(1,180,228,.4); }
 .ep-tabs{ display:flex; gap:.3rem; background:rgba(255,255,255,.04); border-radius:10px; padding:.3rem; margin-bottom:1.2rem; }
 .ep-tab{ flex:1; padding:.55rem; border-radius:7px; border:none; font-family:'Tajawal'; font-size:.88rem; font-weight:700; background:transparent; color:var(--mu); cursor:pointer; transition:all .2s; }
 .ep-tab.active{ background:var(--red); color:#fff; }
@@ -2131,6 +2211,24 @@ body.light-mode{
 <div class="mo" id="m-add-content">
   <div class="md wide">
     <div class="mh"><h2>➕ إضافة محتوى جديد</h2><button class="mclose" onclick="closeModal('m-add-content')">✕</button></div>
+
+    <!-- TMDB SEARCH -->
+    <div class="tmdb-search-box">
+      <div style="display:flex;gap:.5rem;align-items:center;margin-bottom:.6rem">
+        <span style="font-size:.85rem;font-weight:800;color:#01b4e4">🎬 بحث تلقائي TMDB</span>
+        <span style="font-size:.72rem;color:var(--mu)">اكتب الاسم واضغط بحث لتعبئة الحقول تلقائياً</span>
+      </div>
+      <div style="display:flex;gap:.5rem">
+        <input class="fc" id="tmdb-search-inp" placeholder="اكتب اسم الفيلم أو المسلسل..." style="flex:1" onkeydown="if(event.key==='Enter')tmdbSearch()">
+        <select class="fc" id="tmdb-search-type" style="flex:0 0 100px">
+          <option value="multi">الكل</option>
+          <option value="movie">فيلم</option>
+          <option value="tv">مسلسل</option>
+        </select>
+        <button class="sbtn" onclick="tmdbSearch()" id="btn-tmdb-search" style="flex:0 0 80px;padding:.5rem;font-size:.82rem">🔍 بحث</button>
+      </div>
+      <div id="tmdb-results" style="display:none;margin-top:.6rem;max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:.4rem"></div>
+    </div>
     <div class="form-2col">
       <div>
         <div class="fg"><label>العنوان *</label><input class="fc" id="ac-title" type="text" placeholder="اسم الفيلم أو المسلسل"></div>
