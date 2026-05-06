@@ -652,11 +652,12 @@ window.loadEpisodes = async (workId, c) => {
         ${seasons[s][0]?.seasonDownload ? `<a href="${sanitize(seasons[s][0].seasonDownload)}" target="_blank" rel="noopener" class="season-dl-btn">⬇️ تحميل الموسم ${s} كاملاً</a>` : ""}
         <div class="eps-grid">
           ${seasons[s].map(ep=>`
-            <div class="ep-item" onclick="selectEpisode('${ep.id}')">
+            <div class="ep-item" onclick="selectEpisode('${ep.id}',event)">
               <div class="ep-num">ح${ep.episode||"?"}</div>
               <div class="ep-title">${sanitize(ep.title||`الحلقة ${ep.episode}`)}</div>
               ${ep.quality?`<div class="ep-q">${sanitize(ep.quality)}</div>`:""}
               ${(ep.servers||[]).length>1?`<div class="ep-srv-count">${ep.servers.length} سيرفرات</div>`:""}
+              ${ep.downloadLinks?.length?`<a href="${sanitize(ep.downloadLinks[0].url)}" target="_blank" rel="noopener" class="ep-dl-btn" onclick="event.stopPropagation()">⬇️</a>`:""}
             </div>`).join("")}
         </div>
       </div>`).join("");
@@ -1157,7 +1158,15 @@ window.doAddEpisode = async () => {
     const url  = row.querySelector('.srv-url')?.value?.trim();
     if(url) servers.push({name: name||'سيرفر', url});
   });
-  if(!servers.length) return toast("⚠️ أضف رابطاً واحداً على الأقل","w");
+  if(!servers.length) return toast("⚠️ أضف رابط مشاهدة واحداً على الأقل","w");
+
+  // جمع روابط التحميل
+  const dlLinks = [];
+  document.querySelectorAll('#ep-dl-wrap-admin .srv-row').forEach(row => {
+    const name = row.querySelector('.srv-name')?.value?.trim();
+    const url  = row.querySelector('.srv-url')?.value?.trim();
+    if(url) dlLinks.push({name: name||'تحميل', url});
+  });
 
   setBL("btn-add-ep", true);
   try{
@@ -1166,6 +1175,7 @@ window.doAddEpisode = async () => {
       contentId, season, episode, title, quality,
       embedUrl: servers[0].url,
       servers,
+      downloadLinks: dlLinks.length ? dlLinks : null,
       seasonDownload: seasonDl||null,
       createdAt: serverTimestamp()
     });
@@ -1175,12 +1185,26 @@ window.doAddEpisode = async () => {
     if(epInput) epInput.value = episode + 1;
     G("ep-servers-wrap-admin").innerHTML = "";
     addServerRow();
+    const dlWrap = G("ep-dl-wrap-admin");
+    if(dlWrap) dlWrap.innerHTML = "";
     G("ep-title").value = "";
   } catch(e){
     console.error("❌ doAddEpisode error:", e);
     toast("❌ فشل: "+e.message,"e");
   }
   setBL("btn-add-ep", false);
+};
+
+window.addEpDlRow = (name="", url="") => {
+  const wrap = G("ep-dl-wrap-admin");
+  if(!wrap) return;
+  const row = document.createElement("div");
+  row.className = "srv-row link-row";
+  row.innerHTML = `
+    <input class="fc srv-name" value="${sanitize(name)}" placeholder="اسم (مثال: savefiles)" style="flex:0 0 110px">
+    <input class="fc srv-url" value="${sanitize(url)}" placeholder="رابط التحميل https://..." style="flex:1">
+    <button onclick="this.parentElement.remove()" class="rm-btn">✕</button>`;
+  wrap.appendChild(row);
 };
 
 window.addServerRow = (name="", url="") => {
@@ -1233,6 +1257,16 @@ window.doBulkEpisodes = async () => {
 
   if(!parsed.length) return toast("⚠️ لم يتم العثور على أي روابط","w");
 
+  // استخراج روابط التحميل
+  const dlRawText = G("bulk-dl-text")?.value?.trim();
+  const dlUrls = [];
+  if(dlRawText){
+    dlRawText.split(/\n+/).map(l=>l.trim()).filter(Boolean).forEach(line => {
+      const urlMatch = line.match(/(https?:\/\/[^\s]+)/);
+      if(urlMatch) dlUrls.push(urlMatch[1]);
+    });
+  }
+
   const startEp = parseInt(G("bulk-start-ep")?.value)||1;
   const quality = G("bulk-quality")?.value||"";
   setBL("btn-bulk-add", true);
@@ -1251,6 +1285,7 @@ window.doBulkEpisodes = async () => {
           title: label || `الحلقة ${epNum}`,
           embedUrl: url,
           servers: [{name: srvName, url}],
+          downloadLinks: dlUrls[i] ? [{name: 'تحميل', url: dlUrls[i]}] : null,
           quality,
           seasonDownload: seasonDl||null,
           createdAt: serverTimestamp()
@@ -1729,7 +1764,8 @@ body{
 .ep-num{ font-size:.75rem; font-weight:900; color:var(--red); min-width:28px; }
 .ep-title{ flex:1; font-size:.83rem; font-weight:700; }
 .ep-q{ font-size:.65rem; background:rgba(245,166,35,.2); color:var(--gold); padding:.1rem .4rem; border-radius:4px; font-weight:800; }
-.ep-srv-count{ font-size:.65rem; background:rgba(16,185,129,.15); color:var(--green); padding:.1rem .4rem; border-radius:4px; font-weight:800; }
+.ep-dl-btn{ font-size:.8rem; background:rgba(16,185,129,.15); border:1px solid rgba(16,185,129,.3); color:var(--green); padding:.2rem .5rem; border-radius:6px; text-decoration:none; flex-shrink:0; transition:all .2s; }
+.ep-dl-btn:hover{ background:rgba(16,185,129,.3); }
 
 /* ─── SERVERS ─── */
 .servers-header{ display:flex; align-items:center; margin-bottom:.6rem; flex-wrap:wrap; gap:.3rem; }
@@ -2342,9 +2378,15 @@ body.light-mode{
       </div>
       <!-- السيرفرات -->
       <div class="fg">
-        <label>🖥️ السيرفرات (أضف رابطاً لكل سيرفر)</label>
+        <label>🖥️ سيرفرات المشاهدة (أضف رابطاً لكل سيرفر)</label>
         <div id="ep-servers-wrap-admin"></div>
-        <button class="add-link-btn" onclick="addServerRow()">+ إضافة سيرفر</button>
+        <button class="add-link-btn" onclick="addServerRow()">+ إضافة سيرفر مشاهدة</button>
+      </div>
+      <!-- روابط التحميل للحلقة -->
+      <div class="fg">
+        <label>⬇️ روابط تحميل الحلقة <span class="opt"></span></label>
+        <div id="ep-dl-wrap-admin"></div>
+        <button class="add-link-btn" onclick="addEpDlRow()">+ إضافة رابط تحميل</button>
       </div>
       <button class="sbtn" id="btn-add-ep" onclick="doAddEpisode()">✅ إضافة الحلقة</button>
     </div>
@@ -2374,14 +2416,22 @@ body.light-mode{
         <input class="fc" id="bulk-season-dl" type="url" placeholder="https://...">
       </div>
       <div class="fg">
-        <label>📋 الصق الروابط هنا</label>
+        <label>📋 الصق روابط المشاهدة هنا</label>
         <div style="background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:.7rem;font-size:.75rem;color:rgba(255,255,255,.5);margin-bottom:.5rem;line-height:1.7">
           الصيغ المدعومة:<br>
           • رابط مباشر في كل سطر<br>
           • <code style="color:#60a5fa">الحلقة 1 | https://dood.to/e/xxx</code><br>
           • HTML من savefiles (يستخرج الروابط تلقائياً)
         </div>
-        <textarea class="fc" id="bulk-text" rows="8" placeholder="https://dood.to/e/abc&#10;https://dood.to/e/def&#10;https://dood.to/e/ghi&#10;..."></textarea>
+        <textarea class="fc" id="bulk-text" rows="6" placeholder="https://playmogo.com/d/abc&#10;https://playmogo.com/d/def&#10;..."></textarea>
+      </div>
+      <!-- روابط التحميل بالجملة -->
+      <div class="fg">
+        <label>⬇️ الصق روابط التحميل هنا <span class="opt"></span></label>
+        <div style="background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:.6rem;font-size:.75rem;color:rgba(255,255,255,.5);margin-bottom:.5rem;line-height:1.6">
+          نفس العدد والترتيب كروابط المشاهدة — رابط واحد لكل سطر
+        </div>
+        <textarea class="fc" id="bulk-dl-text" rows="6" placeholder="https://savefiles.com/abc&#10;https://savefiles.com/def&#10;..."></textarea>
       </div>
       <div id="bulk-progress" style="text-align:center;font-size:.85rem;color:var(--green);min-height:1.5em"></div>
       <button class="sbtn" id="btn-bulk-add" onclick="doBulkEpisodes()">🚀 إضافة الحلقات بالجملة</button>
