@@ -606,7 +606,9 @@ window.closePlayer = () => {
   closeModal("m-player");
 };
 
-// ─── EPISODES ───
+// ─── EPISODES (نظام السيرفرات المتعددة) ───
+window._currentEpisode = null; // الحلقة المختارة حالياً
+
 window.loadEpisodes = async (workId, c) => {
   const wrap = G("cm-seasons");
   if(!wrap) return;
@@ -622,19 +624,89 @@ window.loadEpisodes = async (workId, c) => {
       if(!seasons[s]) seasons[s] = [];
       seasons[s].push(ep);
     });
-    wrap.innerHTML = Object.entries(seasons).map(([s, eps])=>`
-      <div class="season-block">
-        <div class="season-title">الموسم ${s}</div>
+    const seasonNums = Object.keys(seasons).sort((a,b)=>Number(a)-Number(b));
+    // تبويبات المواسم إذا أكثر من موسم
+    let tabsHtml = "";
+    if(seasonNums.length > 1){
+      tabsHtml = `<div class="season-tabs" id="season-tabs">
+        ${seasonNums.map((s,i)=>`<button class="season-tab ${i===0?'active':''}" onclick="switchSeason('${s}',this)">الموسم ${s}</button>`).join("")}
+      </div>`;
+    }
+    // عرض المواسم
+    const seasonsHtml = seasonNums.map((s,si)=>`
+      <div class="season-block ${si===0?'active':''}" id="season-block-${s}">
+        ${seasons[s][0]?.seasonDownload ? `<a href="${sanitize(seasons[s][0].seasonDownload)}" target="_blank" rel="noopener" class="season-dl-btn">⬇️ تحميل الموسم ${s} كاملاً</a>` : ""}
         <div class="eps-grid">
-          ${eps.map(ep=>`
-            <div class="ep-item" onclick="playEpisode('${sanitize(ep.embedUrl||"")}','${sanitize(ep.title||"")}')">
+          ${seasons[s].map(ep=>`
+            <div class="ep-item" onclick="selectEpisode('${ep.id}')">
               <div class="ep-num">ح${ep.episode||"?"}</div>
               <div class="ep-title">${sanitize(ep.title||`الحلقة ${ep.episode}`)}</div>
               ${ep.quality?`<div class="ep-q">${sanitize(ep.quality)}</div>`:""}
+              ${(ep.servers||[]).length>1?`<div class="ep-srv-count">${ep.servers.length} سيرفرات</div>`:""}
             </div>`).join("")}
         </div>
       </div>`).join("");
+
+    wrap.innerHTML = tabsHtml + seasonsHtml;
+    // حفظ بيانات الحلقات للوصول السريع
+    window._episodesData = {};
+    eps.forEach(ep => { window._episodesData[ep.id] = ep; });
   } catch(e){ wrap.innerHTML = '<div style="color:rgba(255,255,255,.35)">❌ خطأ في التحميل</div>'; }
+};
+
+window.switchSeason = (s, el) => {
+  document.querySelectorAll('.season-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.season-block').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  const block = G(`season-block-${s}`);
+  if(block) block.classList.add('active');
+};
+
+// اختيار حلقة → عرض أزرار السيرفرات
+window.selectEpisode = (epId) => {
+  const ep = window._episodesData?.[epId];
+  if(!ep) return;
+  window._currentEpisode = ep;
+
+  // تمييز الحلقة المختارة
+  document.querySelectorAll('.ep-item').forEach(el => el.classList.remove('ep-selected'));
+  event?.currentTarget?.classList.add('ep-selected');
+
+  // بناء منطقة السيرفرات
+  const servers = ep.servers && ep.servers.length ? ep.servers : (ep.embedUrl ? [{name:'السيرفر الرئيسي', url:ep.embedUrl}] : []);
+  if(!servers.length) return toast("⚠️ لا يوجد رابط لهذه الحلقة","w");
+
+  const serversWrap = G("ep-servers-wrap");
+  if(!serversWrap){ showServerModal(ep, servers); return; }
+
+  // إظهار قسم السيرفرات داخل الـ modal
+  G("ep-servers-title").textContent = `الحلقة ${ep.episode}${ep.title?' — '+ep.title:''}`;
+  serversWrap.style.display = "block";
+  G("ep-servers-list").innerHTML = servers.map((srv,i)=>`
+    <button class="srv-btn ${i===0?'active':''}" onclick="playServer('${sanitize(srv.url||"")}','${sanitize(ep.title||`الحلقة ${ep.episode}`)}',this)">
+      <span class="srv-icon">${getSrvIcon(srv.name)}</span>
+      <span>${sanitize(srv.name||'سيرفر '+(i+1))}</span>
+    </button>`).join("");
+  // تشغيل السيرفر الأول تلقائياً
+  if(servers[0]?.url) openPlayer(servers[0].url, ep.title||`الحلقة ${ep.episode}`);
+  serversWrap.scrollIntoView({behavior:"smooth", block:"nearest"});
+};
+
+function getSrvIcon(name){
+  name = (name||"").toLowerCase();
+  if(name.includes("dood")) return "🟡";
+  if(name.includes("stream")) return "🟢";
+  if(name.includes("tape")) return "🔵";
+  if(name.includes("wish")) return "🟣";
+  if(name.includes("vid")) return "🔴";
+  return "⚪";
+}
+
+window.playServer = (url, title, btn) => {
+  if(!url) return toast("⚠️ الرابط غير متاح","w");
+  document.querySelectorAll('.srv-btn').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+  openPlayer(url, title);
 };
 
 window.playEpisode = (embedUrl, title) => {
@@ -975,27 +1047,129 @@ window.addDownloadLinkRow = () => {
   wrap.appendChild(row);
 };
 
-// ─── ADMIN: ADD EPISODE ───
+// ─── ADMIN: ADD EPISODE (سيرفرات متعددة) ───
 window.doAddEpisode = async () => {
   if(!isAdmin()) return;
   const contentId = V("ep-content-id").trim();
   const season    = parseInt(V("ep-season"))||1;
   const episode   = parseInt(V("ep-episode"))||1;
   const title     = V("ep-title").trim();
-  const embedUrl  = V("ep-embed").trim();
   const quality   = V("ep-quality");
+  const seasonDl  = V("ep-season-dl").trim();
 
-  if(!contentId||!embedUrl) return toast("⚠️ معرّف المحتوى ورابط Embed مطلوبان","w");
+  if(!contentId) return toast("⚠️ معرّف المحتوى مطلوب","w");
+
+  // جمع السيرفرات
+  const servers = [];
+  document.querySelectorAll('.srv-row').forEach(row => {
+    const name = row.querySelector('.srv-name')?.value?.trim();
+    const url  = row.querySelector('.srv-url')?.value?.trim();
+    if(url) servers.push({name: name||'سيرفر', url});
+  });
+  if(!servers.length) return toast("⚠️ أضف رابطاً واحداً على الأقل","w");
+
   setBL("btn-add-ep", true);
   try{
     await addDoc(collection(db,"fc_episodes"),{
-      contentId, season, episode, title, embedUrl, quality,
+      contentId, season, episode, title, quality,
+      embedUrl: servers[0].url, // الرابط الرئيسي للتوافق
+      servers, seasonDownload: seasonDl||null,
       createdAt: serverTimestamp()
     });
     toast("✅ تم إضافة الحلقة!");
-    closeModal("m-add-episode");
+    // تحديث رقم الحلقة تلقائياً
+    const epInput = G("ep-episode");
+    if(epInput) epInput.value = episode + 1;
+    // تفريغ السيرفرات
+    G("ep-servers-wrap-admin").innerHTML = "";
+    addServerRow();
+    G("ep-title").value = "";
   } catch(e){ toast("❌ فشل: "+e.message,"e"); }
   setBL("btn-add-ep", false);
+};
+
+window.addServerRow = (name="", url="") => {
+  const wrap = G("ep-servers-wrap-admin");
+  if(!wrap) return;
+  const row = document.createElement("div");
+  row.className = "srv-row link-row";
+  row.innerHTML = `
+    <input class="fc srv-name" value="${sanitize(name)}" placeholder="اسم السيرفر (مثال: Doodstream)" style="flex:0 0 130px">
+    <input class="fc srv-url" value="${sanitize(url)}" placeholder="رابط Embed السيرفر" style="flex:1">
+    <button onclick="this.parentElement.remove()" class="rm-btn">✕</button>`;
+  wrap.appendChild(row);
+};
+
+// ─── ADMIN: إضافة حلقات بالجملة ───
+window.doBulkEpisodes = async () => {
+  if(!isAdmin()) return;
+  const contentId = V("bulk-content-id").trim();
+  const season    = parseInt(V("bulk-season"))||1;
+  const srvName   = V("bulk-srv-name").trim() || "السيرفر الرئيسي";
+  const seasonDl  = V("bulk-season-dl").trim();
+  const rawText   = G("bulk-text")?.value?.trim();
+
+  if(!contentId) return toast("⚠️ معرّف المحتوى مطلوب","w");
+  if(!rawText)   return toast("⚠️ ألصق الروابط أولاً","w");
+
+  // استخراج الروابط — يدعم:
+  // 1) رابط مباشر في سطر واحد
+  // 2) نص | رابط
+  // 3) رقم الحلقة - رابط
+  // 4) HTML من savefiles: href="..."
+  const lines = rawText.split(/\n+/).map(l=>l.trim()).filter(Boolean);
+  const parsed = [];
+
+  lines.forEach(line => {
+    // استخراج روابط من HTML
+    const hrefMatches = line.match(/href=["']([^"']+)["']/gi);
+    if(hrefMatches){
+      hrefMatches.forEach(m => {
+        const url = m.replace(/href=["']/i,"").replace(/["']$/,"");
+        if(url.startsWith("http")) parsed.push({url, label: line.replace(/<[^>]+>/g,'').trim().substring(0,50)});
+      });
+      return;
+    }
+    // نص | رابط  أو  رقم - رابط
+    const pipeMatch = line.match(/^(.+?)\s*[|\-]\s*(https?:\/\/.+)$/);
+    if(pipeMatch){ parsed.push({label:pipeMatch[1].trim(), url:pipeMatch[2].trim()}); return; }
+    // رابط مباشر
+    const urlMatch = line.match(/(https?:\/\/[^\s]+)/);
+    if(urlMatch){ parsed.push({url:urlMatch[1], label:""}); return; }
+  });
+
+  if(!parsed.length) return toast("⚠️ لم يتم العثور على أي روابط","w");
+
+  const startEp = parseInt(V("bulk-start-ep"))||1;
+  setBL("btn-bulk-add", true);
+  const G2 = G("bulk-progress");
+  if(G2) G2.textContent = "⏳ جاري الإضافة...";
+
+  let added = 0;
+  for(let i = 0; i < parsed.length; i++){
+    const {url, label} = parsed[i];
+    const epNum = startEp + i;
+    try{
+      await addDoc(collection(db,"fc_episodes"),{
+        contentId, season, episode: epNum,
+        title: label || `الحلقة ${epNum}`,
+        embedUrl: url,
+        servers: [{name: srvName, url}],
+        quality: V("bulk-quality")||"",
+        seasonDownload: seasonDl||null,
+        createdAt: serverTimestamp()
+      });
+      added++;
+      if(G2) G2.textContent = `⏳ تم إضافة ${added} من ${parsed.length}...`;
+    } catch(e){ console.warn("ep error:", e); }
+  }
+
+  if(G2) G2.textContent = `✅ تم إضافة ${added} حلقة!`;
+  toast(`✅ تمت إضافة ${added} حلقة بنجاح!`);
+  setBL("btn-bulk-add", false);
+  // تحديث رقم البداية
+  const si = G("bulk-start-ep");
+  if(si) si.value = startEp + added;
 };
 
 // ─── ADMIN: DELETE ───
@@ -1434,8 +1608,15 @@ body{
 .cm-meta-row span{ font-size:.75rem; background:rgba(255,255,255,.05); border:1px solid var(--br); padding:.18rem .55rem; border-radius:20px; color:var(--mu); }
 
 /* ─── EPISODES ─── */
-.season-block{ margin-bottom:1.2rem; }
+.season-block{ margin-bottom:1.2rem; display:none; }
+.season-block.active{ display:block; }
+.season-tabs{ display:flex; gap:.4rem; margin-bottom:.8rem; overflow-x:auto; padding-bottom:.2rem; }
+.season-tabs::-webkit-scrollbar{ display:none; }
+.season-tab{ font-family:'Tajawal'; font-size:.8rem; font-weight:700; padding:.3rem .85rem; border-radius:20px; border:1px solid var(--br); background:rgba(255,255,255,.04); color:var(--mu); cursor:pointer; white-space:nowrap; transition:all .2s; flex-shrink:0; }
+.season-tab.active{ background:var(--red); border-color:var(--red); color:#fff; }
 .season-title{ font-size:.9rem; font-weight:800; color:var(--red); margin-bottom:.6rem; }
+.season-dl-btn{ display:block; text-align:center; background:rgba(59,130,246,.12); border:1.5px solid rgba(59,130,246,.35); color:#60a5fa; text-decoration:none; font-family:'Tajawal'; font-size:.8rem; font-weight:800; padding:.5rem; border-radius:8px; margin-bottom:.7rem; }
+.season-dl-btn:hover{ background:rgba(59,130,246,.22); }
 .eps-grid{ display:flex; flex-direction:column; gap:.4rem; }
 .ep-item{
   display:flex; align-items:center; gap:.7rem;
@@ -1443,9 +1624,31 @@ body{
   padding:.6rem .9rem; cursor:pointer; transition:all .2s;
 }
 .ep-item:hover{ background:rgba(229,9,20,.08); border-color:rgba(229,9,20,.3); }
+.ep-item.ep-selected{ background:rgba(229,9,20,.12); border-color:rgba(229,9,20,.5); }
 .ep-num{ font-size:.75rem; font-weight:900; color:var(--red); min-width:28px; }
 .ep-title{ flex:1; font-size:.83rem; font-weight:700; }
 .ep-q{ font-size:.65rem; background:rgba(245,166,35,.2); color:var(--gold); padding:.1rem .4rem; border-radius:4px; font-weight:800; }
+.ep-srv-count{ font-size:.65rem; background:rgba(16,185,129,.15); color:var(--green); padding:.1rem .4rem; border-radius:4px; font-weight:800; }
+
+/* ─── SERVERS ─── */
+.servers-header{ display:flex; align-items:center; margin-bottom:.6rem; flex-wrap:wrap; gap:.3rem; }
+.servers-list{ display:flex; flex-wrap:wrap; gap:.45rem; }
+.srv-btn{
+  font-family:'Tajawal'; font-size:.82rem; font-weight:700;
+  padding:.45rem .9rem; border-radius:20px; border:1.5px solid var(--br);
+  background:rgba(255,255,255,.05); color:var(--mu); cursor:pointer;
+  transition:all .2s; display:flex; align-items:center; gap:.4rem;
+}
+.srv-btn:hover{ border-color:var(--red); color:var(--w); background:rgba(229,9,20,.08); }
+.srv-btn.active{ background:var(--red); border-color:var(--red); color:#fff; }
+.srv-icon{ font-size:.9rem; }
+
+/* ─── EPISODE MODAL TABS ─── */
+.ep-tabs{ display:flex; gap:.3rem; background:rgba(255,255,255,.04); border-radius:10px; padding:.3rem; margin-bottom:1.2rem; }
+.ep-tab{ flex:1; padding:.55rem; border-radius:7px; border:none; font-family:'Tajawal'; font-size:.88rem; font-weight:700; background:transparent; color:var(--mu); cursor:pointer; transition:all .2s; }
+.ep-tab.active{ background:var(--red); color:#fff; }
+.ep-tab-content{ display:none; }
+.ep-tab-content.active{ display:block; }
 
 /* ─── COMMENTS ─── */
 .cm-item{ display:flex; gap:.6rem; padding:.5rem 0; border-bottom:1px solid var(--br); }
@@ -1852,6 +2055,14 @@ body.light-mode{
       <div id="cm-episodes-wrap" style="display:none;margin-bottom:1rem">
         <div class="cm-section-title">📺 الحلقات</div>
         <div id="cm-seasons"></div>
+        <!-- منطقة السيرفرات (تظهر عند اختيار حلقة) -->
+        <div id="ep-servers-wrap" style="display:none;margin-top:.8rem">
+          <div class="servers-header">
+            <span class="cm-section-title" style="margin-bottom:0">🖥️ السيرفرات</span>
+            <span id="ep-servers-title" style="font-size:.78rem;color:var(--mu);margin-right:.5rem"></span>
+          </div>
+          <div id="ep-servers-list" class="servers-list"></div>
+        </div>
       </div>
 
       <!-- SIMILAR -->
@@ -1970,21 +2181,73 @@ body.light-mode{
   </div>
 </div>
 
-<!-- ADD EPISODE MODAL (Admin) -->
+<!-- ADD EPISODE MODAL (Admin) — سيرفرات متعددة -->
 <div class="mo" id="m-add-episode">
-  <div class="md">
-    <div class="mh"><h2>📺 إضافة حلقة</h2><button class="mclose" onclick="closeModal('m-add-episode')">✕</button></div>
-    <div class="fg"><label>معرّف المسلسل/الأنمي * <span style="font-size:.72rem;color:var(--mu)">(ID من Firestore)</span></label><input class="fc" id="ep-content-id" type="text" placeholder="الـ ID من Firebase"></div>
-    <div class="form-2col">
-      <div class="fg"><label>رقم الموسم</label><input class="fc" id="ep-season" type="number" value="1" min="1"></div>
-      <div class="fg"><label>رقم الحلقة</label><input class="fc" id="ep-episode" type="number" value="1" min="1"></div>
+  <div class="md wide" style="max-width:680px">
+    <div class="mh"><h2>📺 إدارة الحلقات</h2><button class="mclose" onclick="closeModal('m-add-episode')">✕</button></div>
+
+    <!-- تبويبات: حلقة واحدة / إضافة بالجملة -->
+    <div class="ep-tabs">
+      <button class="ep-tab active" onclick="switchEpTab('single',this)">➕ حلقة واحدة</button>
+      <button class="ep-tab" onclick="switchEpTab('bulk',this)">📦 إضافة بالجملة</button>
     </div>
-    <div class="fg"><label>عنوان الحلقة</label><input class="fc" id="ep-title" type="text" placeholder="اختياري"></div>
-    <div class="fg"><label>رابط Embed * (DoodStream)</label><input class="fc" id="ep-embed" type="url" placeholder="https://dood.to/e/..."></div>
-    <div class="fg"><label>الجودة</label>
-      <select class="fc" id="ep-quality"><option value="">اختر</option><option>1080p</option><option>720p</option><option>480p</option></select>
+
+    <!-- تبويب: حلقة واحدة -->
+    <div id="ep-tab-single" class="ep-tab-content active">
+      <div class="fg"><label>معرّف المسلسل * <span style="font-size:.7rem;color:var(--mu)">(ID من Firestore)</span></label>
+        <input class="fc" id="ep-content-id" type="text" placeholder="مثال: abc123xyz"></div>
+      <div class="form-2col">
+        <div class="fg"><label>رقم الموسم</label><input class="fc" id="ep-season" type="number" value="1" min="1"></div>
+        <div class="fg"><label>رقم الحلقة</label><input class="fc" id="ep-episode" type="number" value="1" min="1"></div>
+      </div>
+      <div class="fg"><label>عنوان الحلقة <span class="opt"></span></label><input class="fc" id="ep-title" type="text" placeholder="اختياري"></div>
+      <div class="form-2col">
+        <div class="fg"><label>الجودة</label>
+          <select class="fc" id="ep-quality"><option value="">اختر</option><option>1080p</option><option>720p</option><option>480p</option></select>
+        </div>
+        <div class="fg"><label>رابط تحميل الموسم <span class="opt"></span></label><input class="fc" id="ep-season-dl" type="url" placeholder="https://..."></div>
+      </div>
+      <!-- السيرفرات -->
+      <div class="fg">
+        <label>🖥️ السيرفرات (أضف رابطاً لكل سيرفر)</label>
+        <div id="ep-servers-wrap-admin"></div>
+        <button class="add-link-btn" onclick="addServerRow()">+ إضافة سيرفر</button>
+      </div>
+      <button class="sbtn" id="btn-add-ep" onclick="doAddEpisode()">✅ إضافة الحلقة</button>
     </div>
-    <button class="sbtn" id="btn-add-ep" onclick="doAddEpisode()">✅ إضافة الحلقة</button>
+
+    <!-- تبويب: إضافة بالجملة -->
+    <div id="ep-tab-bulk" class="ep-tab-content">
+      <div class="fg">
+        <label>معرّف المسلسل *</label>
+        <input class="fc" id="bulk-content-id" type="text" placeholder="مثال: abc123xyz">
+      </div>
+      <div class="form-2col">
+        <div class="fg"><label>رقم الموسم</label><input class="fc" id="bulk-season" type="number" value="1" min="1"></div>
+        <div class="fg"><label>بدءاً من الحلقة</label><input class="fc" id="bulk-start-ep" type="number" value="1" min="1"></div>
+      </div>
+      <div class="form-2col">
+        <div class="fg"><label>اسم السيرفر</label><input class="fc" id="bulk-srv-name" placeholder="مثال: Doodstream" value="Doodstream"></div>
+        <div class="fg"><label>الجودة</label>
+          <select class="fc" id="bulk-quality"><option value="">اختر</option><option>1080p</option><option>720p</option><option>480p</option></select>
+        </div>
+      </div>
+      <div class="fg"><label>رابط تحميل الموسم كاملاً <span class="opt"></span></label>
+        <input class="fc" id="bulk-season-dl" type="url" placeholder="https://...">
+      </div>
+      <div class="fg">
+        <label>📋 الصق الروابط هنا</label>
+        <div style="background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:.7rem;font-size:.75rem;color:rgba(255,255,255,.5);margin-bottom:.5rem;line-height:1.7">
+          الصيغ المدعومة:<br>
+          • رابط مباشر في كل سطر<br>
+          • <code style="color:#60a5fa">الحلقة 1 | https://dood.to/e/xxx</code><br>
+          • HTML من savefiles (يستخرج الروابط تلقائياً)
+        </div>
+        <textarea class="fc" id="bulk-text" rows="8" placeholder="https://dood.to/e/abc&#10;https://dood.to/e/def&#10;https://dood.to/e/ghi&#10;..."></textarea>
+      </div>
+      <div id="bulk-progress" style="text-align:center;font-size:.85rem;color:var(--green);min-height:1.5em"></div>
+      <button class="sbtn" id="btn-bulk-add" onclick="doBulkEpisodes()">🚀 إضافة الحلقات بالجملة</button>
+    </div>
   </div>
 </div>
 
@@ -2008,6 +2271,24 @@ function closeSidebar(){
   G('sb-overlay').classList.remove('show');
   document.body.style.overflow='';
 }
+
+function switchEpTab(tab, el){
+  document.querySelectorAll('.ep-tab').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.ep-tab-content').forEach(f=>f.classList.remove('active'));
+  el.classList.add('active');
+  G('ep-tab-'+tab).classList.add('active');
+}
+window.switchEpTab = switchEpTab;
+
+// تهيئة صف سيرفر عند فتح مودال الحلقات
+const _origOpenModal = window.openModal;
+window.openModal = function(id){
+  if(_origOpenModal) _origOpenModal(id);
+  if(id === 'm-add-episode'){
+    const wrap = G('ep-servers-wrap-admin');
+    if(wrap && !wrap.children.length && window.addServerRow) window.addServerRow();
+  }
+};
 
 function switchAuthTab(tab, el){
   document.querySelectorAll('.atab').forEach(b=>b.classList.remove('active'));
