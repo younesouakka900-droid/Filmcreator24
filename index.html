@@ -110,10 +110,13 @@ onAuthStateChanged(auth, async user => {
       const ab = G("admin-btn"); if(ab) ab.style.display = "inline-flex";
     }
     setTimeout(()=>{ loadWatchlist(); }, 500);
+    // deep link: ?id=xxx
+    setTimeout(()=>{ checkDeepLink(); }, 800);
   } else {
     CU = null; CUD = null; window.CU = null; window.CUD = null;
     updateNavUI(false);
     const ab = G("admin-btn"); if(ab) ab.style.display = "none";
+    setTimeout(()=>{ checkDeepLink(); }, 800);
   }
 });
 
@@ -559,8 +562,9 @@ function renderContentActions(c){
     html += `<button class="ca-btn ca-watch" onclick="openPlayer('${sanitize(c.embedUrl)}','${sanitize(c.title||"")}')">▶️ شاهد الآن</button>`;
   }
 
-  // زر المفضلة
+  // زر المفضلة + زر المشاركة
   html += `<button class="ca-btn ca-wl" onclick="toggleWatchlist('${c.id}')">${isWL?"🔖 في قائمتي":"🔖 أضف للقائمة"}</button>`;
+  html += `<button class="ca-btn ca-share" onclick="shareContent('${c.id}','${sanitize(c.title||"")}')">🔗 مشاركة</button>`;
 
   // روابط مشاهدة إضافية
   if(c.watchLinks && c.watchLinks.length){
@@ -604,6 +608,32 @@ window.closePlayer = () => {
   const frame = G("player-frame");
   if(frame) frame.src = "";
   closeModal("m-player");
+};
+
+// ─── DEEP LINK ───
+let _deepLinkHandled = false;
+function checkDeepLink(){
+  if(_deepLinkHandled) return;
+  const params = new URLSearchParams(location.search);
+  const id = params.get("id");
+  if(!id) return;
+  _deepLinkHandled = true;
+  // إزالة الـ param من الـ URL بدون reload
+  history.replaceState({}, "", location.pathname);
+  openContent(id);
+}
+window.shareContent = (id, title) => {
+  const url = `${location.origin}${location.pathname}?id=${id}`;
+  if(navigator.share){
+    navigator.share({ title: title||"FilmCreator24", url })
+      .catch(()=>{});
+  } else {
+    navigator.clipboard?.writeText(url).then(()=>{
+      toast("✅ تم نسخ الرابط!");
+    }).catch(()=>{
+      prompt("انسخ الرابط:", url);
+    });
+  }
 };
 
 // ─── EPISODES (نظام السيرفرات المتعددة) ───
@@ -652,12 +682,14 @@ window.loadEpisodes = async (workId, c) => {
         ${seasons[s][0]?.seasonDownload ? `<a href="${sanitize(seasons[s][0].seasonDownload)}" target="_blank" rel="noopener" class="season-dl-btn">⬇️ تحميل الموسم ${s} كاملاً</a>` : ""}
         <div class="eps-grid">
           ${seasons[s].map(ep=>`
-            <div class="ep-item" onclick="selectEpisode('${ep.id}',event)">
+            <div class="ep-item">
               <div class="ep-num">ح${ep.episode||"?"}</div>
               <div class="ep-title">${sanitize(ep.title||`الحلقة ${ep.episode}`)}</div>
               ${ep.quality?`<div class="ep-q">${sanitize(ep.quality)}</div>`:""}
-              ${(ep.servers||[]).length>1?`<div class="ep-srv-count">${ep.servers.length} سيرفرات</div>`:""}
-              ${ep.downloadLinks?.length?`<a href="${sanitize(ep.downloadLinks[0].url)}" target="_blank" rel="noopener" class="ep-dl-btn" onclick="event.stopPropagation()">⬇️</a>`:""}
+              <div class="ep-actions">
+                <button class="ep-watch-btn" onclick="selectEpisode('${ep.id}',this)">▶️ شاهد</button>
+                ${ep.downloadLinks?.length?`<a href="${sanitize(ep.downloadLinks[0].url)}" target="_blank" rel="noopener" class="ep-dl-btn" onclick="event.stopPropagation()">⬇️ تحميل</a>`:""}
+              </div>
             </div>`).join("")}
         </div>
       </div>`).join("");
@@ -678,14 +710,18 @@ window.switchSeason = (s, el) => {
 };
 
 // اختيار حلقة → عرض أزرار السيرفرات
-window.selectEpisode = (epId) => {
+window.selectEpisode = (epId, btn) => {
   const ep = window._episodesData?.[epId];
   if(!ep) return;
   window._currentEpisode = ep;
 
   // تمييز الحلقة المختارة
   document.querySelectorAll('.ep-item').forEach(el => el.classList.remove('ep-selected'));
-  event?.currentTarget?.classList.add('ep-selected');
+  const epItem = btn?.closest?.('.ep-item');
+  if(epItem) epItem.classList.add('ep-selected');
+  // تمييز زر المشاهدة
+  document.querySelectorAll('.ep-watch-btn').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
 
   // بناء منطقة السيرفرات
   const servers = ep.servers && ep.servers.length ? ep.servers : (ep.embedUrl ? [{name:'السيرفر الرئيسي', url:ep.embedUrl}] : []);
@@ -1754,18 +1790,16 @@ body{
 .season-dl-btn{ display:block; text-align:center; background:rgba(59,130,246,.12); border:1.5px solid rgba(59,130,246,.35); color:#60a5fa; text-decoration:none; font-family:'Tajawal'; font-size:.8rem; font-weight:800; padding:.5rem; border-radius:8px; margin-bottom:.7rem; }
 .season-dl-btn:hover{ background:rgba(59,130,246,.22); }
 .eps-grid{ display:flex; flex-direction:column; gap:.4rem; }
-.ep-item{
-  display:flex; align-items:center; gap:.7rem;
-  background:rgba(255,255,255,.04); border:1px solid var(--br); border-radius:8px;
-  padding:.6rem .9rem; cursor:pointer; transition:all .2s;
-}
-.ep-item:hover{ background:rgba(229,9,20,.08); border-color:rgba(229,9,20,.3); }
-.ep-item.ep-selected{ background:rgba(229,9,20,.12); border-color:rgba(229,9,20,.5); }
-.ep-num{ font-size:.75rem; font-weight:900; color:var(--red); min-width:28px; }
-.ep-title{ flex:1; font-size:.83rem; font-weight:700; }
-.ep-q{ font-size:.65rem; background:rgba(245,166,35,.2); color:var(--gold); padding:.1rem .4rem; border-radius:4px; font-weight:800; }
-.ep-dl-btn{ font-size:.8rem; background:rgba(16,185,129,.15); border:1px solid rgba(16,185,129,.3); color:var(--green); padding:.2rem .5rem; border-radius:6px; text-decoration:none; flex-shrink:0; transition:all .2s; }
-.ep-dl-btn:hover{ background:rgba(16,185,129,.3); }
+.ep-item{ display:flex; align-items:center; gap:.6rem; background:rgba(255,255,255,.04); border:1px solid var(--br); border-radius:8px; padding:.55rem .8rem; transition:all .2s; }
+.ep-item.ep-selected{ background:rgba(229,9,20,.08); border-color:rgba(229,9,20,.3); }
+.ep-num{ font-size:.75rem; font-weight:900; color:var(--red); min-width:26px; flex-shrink:0; }
+.ep-title{ flex:1; font-size:.82rem; font-weight:700; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ep-q{ font-size:.65rem; background:rgba(245,166,35,.2); color:var(--gold); padding:.1rem .4rem; border-radius:4px; font-weight:800; flex-shrink:0; }
+.ep-actions{ display:flex; gap:.35rem; flex-shrink:0; }
+.ep-watch-btn{ font-family:'Tajawal'; font-size:.75rem; font-weight:800; padding:.3rem .65rem; border-radius:6px; border:1.5px solid rgba(229,9,20,.4); background:rgba(229,9,20,.1); color:var(--red); cursor:pointer; transition:all .2s; white-space:nowrap; }
+.ep-watch-btn:hover,.ep-watch-btn.active{ background:var(--red); color:#fff; border-color:var(--red); }
+.ep-dl-btn{ font-size:.75rem; font-weight:800; background:rgba(16,185,129,.12); border:1.5px solid rgba(16,185,129,.3); color:var(--green); padding:.3rem .65rem; border-radius:6px; text-decoration:none; white-space:nowrap; transition:all .2s; flex-shrink:0; }
+.ep-dl-btn:hover{ background:rgba(16,185,129,.28); }
 
 /* ─── SERVERS ─── */
 .servers-header{ display:flex; align-items:center; margin-bottom:.6rem; flex-wrap:wrap; gap:.3rem; }
