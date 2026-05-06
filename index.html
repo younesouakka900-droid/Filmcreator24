@@ -557,14 +557,10 @@ function renderContentActions(c){
   const isWL = window.CUD?.watchlist?.includes(c.id);
   let html = "";
 
-  // زر المشاهدة الرئيسي (يمتد عرض كامل)
+  // زر المشاهدة الرئيسي
   if(c.embedUrl){
     html += `<button class="ca-btn ca-watch" onclick="openPlayer('${sanitize(c.embedUrl)}','${sanitize(c.title||"")}')">▶️ شاهد الآن</button>`;
   }
-
-  // زر المفضلة + زر المشاركة
-  html += `<button class="ca-btn ca-wl" onclick="toggleWatchlist('${c.id}')">${isWL?"🔖 في قائمتي":"🔖 أضف للقائمة"}</button>`;
-  html += `<button class="ca-btn ca-share" onclick="shareContent('${c.id}','${sanitize(c.title||"")}')">🔗 مشاركة</button>`;
 
   // روابط مشاهدة إضافية
   if(c.watchLinks && c.watchLinks.length){
@@ -582,10 +578,14 @@ function renderContentActions(c){
     });
   }
 
-  // إذا لا يوجد embed
+  // لا روابط بعد
   if(!c.embedUrl && !c.watchLinks?.length && !c.downloadLinks?.length){
-    html = `<div style="grid-column:1/-1;text-align:center;color:rgba(255,255,255,.35);font-size:.83rem;padding:.5rem">لا توجد روابط بعد</div>`;
+    html += `<div style="grid-column:1/-1;text-align:center;color:rgba(255,255,255,.35);font-size:.83rem;padding:.5rem">لا توجد روابط بعد</div>`;
   }
+
+  // أزرار ثابتة دائماً
+  html += `<button class="ca-btn ca-wl" onclick="toggleWatchlist('${c.id}')">${isWL?"🔖 في قائمتي":"🔖 أضف للقائمة"}</button>`;
+  html += `<button class="ca-btn ca-share" onclick="shareContent('${c.id}','${sanitize(c.title||"")}')">🔗 مشاركة</button>`;
 
   wrap.innerHTML = html;
 }
