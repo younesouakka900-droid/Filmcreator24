@@ -1049,15 +1049,15 @@ window.addDownloadLinkRow = () => {
 
 // ─── ADMIN: ADD EPISODE (سيرفرات متعددة) ───
 window.doAddEpisode = async () => {
-  if(!isAdmin()) return;
+  if(!isAdmin()) return toast("⛔ أدمن فقط","e");
   const contentId = G("ep-content-id")?.value?.trim();
-  const season    = parseInt(V("ep-season"))||1;
-  const episode   = parseInt(V("ep-episode"))||1;
-  const title     = V("ep-title").trim();
-  const quality   = V("ep-quality");
-  const seasonDl  = V("ep-season-dl").trim();
+  const season    = parseInt(G("ep-season")?.value)||1;
+  const episode   = parseInt(G("ep-episode")?.value)||1;
+  const title     = G("ep-title")?.value?.trim()||"";
+  const quality   = G("ep-quality")?.value||"";
+  const seasonDl  = G("ep-season-dl")?.value?.trim()||"";
 
-  if(!contentId) return toast("⚠️ معرّف المحتوى مطلوب","w");
+  if(!contentId) return toast("⚠️ اختر المسلسل أولاً","w");
 
   // جمع السيرفرات
   const servers = [];
@@ -1070,21 +1070,25 @@ window.doAddEpisode = async () => {
 
   setBL("btn-add-ep", true);
   try{
-    await addDoc(collection(db,"fc_episodes"),{
+    const {db, collection, addDoc, serverTimestamp} = window._fb();
+    const ref = await addDoc(collection(db,"fc_episodes"),{
       contentId, season, episode, title, quality,
-      embedUrl: servers[0].url, // الرابط الرئيسي للتوافق
-      servers, seasonDownload: seasonDl||null,
+      embedUrl: servers[0].url,
+      servers,
+      seasonDownload: seasonDl||null,
       createdAt: serverTimestamp()
     });
+    console.log("✅ Episode added:", ref.id);
     toast("✅ تم إضافة الحلقة!");
-    // تحديث رقم الحلقة تلقائياً
     const epInput = G("ep-episode");
     if(epInput) epInput.value = episode + 1;
-    // تفريغ السيرفرات
     G("ep-servers-wrap-admin").innerHTML = "";
     addServerRow();
     G("ep-title").value = "";
-  } catch(e){ toast("❌ فشل: "+e.message,"e"); }
+  } catch(e){
+    console.error("❌ doAddEpisode error:", e);
+    toast("❌ فشل: "+e.message,"e");
+  }
   setBL("btn-add-ep", false);
 };
 
@@ -1102,35 +1106,33 @@ window.addServerRow = (name="", url="") => {
 
 // ─── ADMIN: إضافة حلقات بالجملة ───
 window.doBulkEpisodes = async () => {
-  if(!isAdmin()) return;
+  if(!isAdmin()) return toast("⛔ أدمن فقط","e");
   const contentId = G("bulk-content-id")?.value?.trim();
-  const season    = parseInt(V("bulk-season"))||1;
-  const srvName   = V("bulk-srv-name").trim() || "السيرفر الرئيسي";
-  const seasonDl  = V("bulk-season-dl").trim();
+  const season    = parseInt(G("bulk-season")?.value)||1;
+  const srvName   = G("bulk-srv-name")?.value?.trim() || "السيرفر الرئيسي";
+  const seasonDl  = G("bulk-season-dl")?.value?.trim()||"";
   const rawText   = G("bulk-text")?.value?.trim();
 
-  if(!contentId) return toast("⚠️ معرّف المحتوى مطلوب","w");
+  if(!contentId) return toast("⚠️ اختر المسلسل أولاً","w");
   if(!rawText)   return toast("⚠️ ألصق الروابط أولاً","w");
 
-  // استخراج الروابط — يدعم:
-  // 1) رابط مباشر في سطر واحد
-  // 2) نص | رابط
-  // 3) رقم الحلقة - رابط
-  // 4) HTML من savefiles: href="..."
+  // استخراج الروابط
   const lines = rawText.split(/\n+/).map(l=>l.trim()).filter(Boolean);
   const parsed = [];
 
   lines.forEach(line => {
-    // استخراج روابط من HTML
+    // تجاهل تعليقات HTML <!-- -->
+    if(line.startsWith('<!--') || line.startsWith('-->')) return;
+    // استخراج روابط من HTML href
     const hrefMatches = line.match(/href=["']([^"']+)["']/gi);
     if(hrefMatches){
       hrefMatches.forEach(m => {
         const url = m.replace(/href=["']/i,"").replace(/["']$/,"");
-        if(url.startsWith("http")) parsed.push({url, label: line.replace(/<[^>]+>/g,'').trim().substring(0,50)});
+        if(url.startsWith("http")) parsed.push({url, label:""});
       });
       return;
     }
-    // نص | رابط  أو  رقم - رابط
+    // نص | رابط
     const pipeMatch = line.match(/^(.+?)\s*[|\-]\s*(https?:\/\/.+)$/);
     if(pipeMatch){ parsed.push({label:pipeMatch[1].trim(), url:pipeMatch[2].trim()}); return; }
     // رابط مباشر
@@ -1140,34 +1142,42 @@ window.doBulkEpisodes = async () => {
 
   if(!parsed.length) return toast("⚠️ لم يتم العثور على أي روابط","w");
 
-  const startEp = parseInt(V("bulk-start-ep"))||1;
+  const startEp = parseInt(G("bulk-start-ep")?.value)||1;
+  const quality = G("bulk-quality")?.value||"";
   setBL("btn-bulk-add", true);
-  const G2 = G("bulk-progress");
-  if(G2) G2.textContent = "⏳ جاري الإضافة...";
+  const prog = G("bulk-progress");
+  if(prog) prog.textContent = "⏳ جاري الإضافة...";
 
   let added = 0;
-  for(let i = 0; i < parsed.length; i++){
-    const {url, label} = parsed[i];
-    const epNum = startEp + i;
-    try{
-      await addDoc(collection(db,"fc_episodes"),{
-        contentId, season, episode: epNum,
-        title: label || `الحلقة ${epNum}`,
-        embedUrl: url,
-        servers: [{name: srvName, url}],
-        quality: V("bulk-quality")||"",
-        seasonDownload: seasonDl||null,
-        createdAt: serverTimestamp()
-      });
-      added++;
-      if(G2) G2.textContent = `⏳ تم إضافة ${added} من ${parsed.length}...`;
-    } catch(e){ console.warn("ep error:", e); }
+  try{
+    const {db, collection, addDoc, serverTimestamp} = window._fb();
+    for(let i = 0; i < parsed.length; i++){
+      const {url, label} = parsed[i];
+      const epNum = startEp + i;
+      try{
+        await addDoc(collection(db,"fc_episodes"),{
+          contentId, season, episode: epNum,
+          title: label || `الحلقة ${epNum}`,
+          embedUrl: url,
+          servers: [{name: srvName, url}],
+          quality,
+          seasonDownload: seasonDl||null,
+          createdAt: serverTimestamp()
+        });
+        added++;
+        if(prog) prog.textContent = `⏳ تم إضافة ${added} من ${parsed.length}...`;
+      } catch(e){ console.warn("ep error:", epNum, e.message); }
+    }
+  } catch(e){
+    console.error("bulk error:", e);
+    toast("❌ خطأ: "+e.message,"e");
+    setBL("btn-bulk-add", false);
+    return;
   }
 
-  if(G2) G2.textContent = `✅ تم إضافة ${added} حلقة!`;
+  if(prog) prog.textContent = `✅ تم إضافة ${added} حلقة!`;
   toast(`✅ تمت إضافة ${added} حلقة بنجاح!`);
   setBL("btn-bulk-add", false);
-  // تحديث رقم البداية
   const si = G("bulk-start-ep");
   if(si) si.value = startEp + added;
 };
