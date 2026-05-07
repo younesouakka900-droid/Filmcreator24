@@ -110,6 +110,7 @@ onAuthStateChanged(auth, async user => {
       const ab = G("admin-btn"); if(ab) ab.style.display = "inline-flex";
     }
     setTimeout(()=>{ loadWatchlist(); }, 500);
+    setTimeout(()=>{ renderContinueWatching(); }, 600);
     // deep link: ?id=xxx
     setTimeout(()=>{ checkDeepLink(); }, 800);
   } else {
@@ -266,6 +267,8 @@ window.loadContent = async () => {
     loadHero();
     loadTrending();
     loadLatest();
+    buildYearFilter();
+    setTimeout(checkNewEpisodes, 2000);
   } catch(e){
     grid.innerHTML = '<div class="loading-state">❌ خطأ في التحميل</div>';
   }
@@ -287,6 +290,7 @@ window.loadHero = () => {
 function renderHeroSlides(items){
   const wrap = G("hero-slides");
   if(!wrap) return;
+  window._heroIdx = 0;
   wrap.innerHTML = items.map((c,i) => `
     <div class="hslide ${i===0?'active':''}" onclick="openContent('${c.id}')"
       style="background:linear-gradient(to left, transparent 20%, rgba(5,5,15,.95) 65%), url('${sanitize(c.poster||"")}') center/cover no-repeat">
@@ -304,41 +308,35 @@ function renderHeroSlides(items){
           ${c.country?`🌍 ${sanitize(c.country)}`:""}
         </div>
         <div class="hslide-btns">
-          <button class="hbtn hbtn-watch" onclick="event.stopPropagation();openContent('${c.id}')">▶️ شاهد الآن</button>
-          <button class="hbtn hbtn-wl" onclick="event.stopPropagation();toggleWatchlist('${c.id}')">🔖 أضف للقائمة</button>
+          <button class="hbtn hbtn-watch" onclick="event.stopPropagation();openContent('${c.id}')">&#x25B6;&#xFE0F; شاهد الآن</button>
+          <button class="hbtn hbtn-wl" onclick="event.stopPropagation();toggleWatchlist('${c.id}')">&#x1F516; أضف للقائمة</button>
         </div>
       </div>
     </div>`).join("");
-  startHeroSlider(items.length);
-  // dots
   const dots = G("hero-dots");
   if(dots) dots.innerHTML = items.map((_,i)=>`<div class="hdot ${i===0?'active':''}" onclick="goHeroSlide(${i})"></div>`).join("");
-}
-
-function defaultHeroSlide(){
-  return `<div class="hslide active" style="background:radial-gradient(ellipse at 60% 40%, rgba(229,9,20,.2), transparent), linear-gradient(135deg,#05050f,#1a0510)">
-    <div class="hslide-content">
-      <div class="hslide-tags"><span class="htag htag-type">أفلام</span></div>
-      <h2 class="hslide-title">مرحباً بك في FilmCreator24</h2>
-      <p class="hslide-desc">شاهد أحدث الأفلام والمسلسلات والأنمي مجاناً بجودة عالية</p>
-      <div class="hslide-btns"><button class="hbtn hbtn-watch" onclick="openModal('m-auth')">▶️ ابدأ المشاهدة</button></div>
-    </div></div>`;
+  startHeroSlider(items.length);
 }
 
 window._heroIdx = 0;
 let _heroTimer = null, _heroLen = 0;
+
 function startHeroSlider(len){
-  _heroLen = len; clearInterval(_heroTimer);
-  if(len > 1) _heroTimer = setInterval(()=> window.goHeroSlide(window._heroIdx+1), 6000);
+  _heroLen = len;
+  clearInterval(_heroTimer);
+  _heroTimer = null;
+  if(len > 1) _heroTimer = setInterval(()=> window.goHeroSlide((window._heroIdx+1) % len), 6000);
 }
+
 window.goHeroSlide = idx => {
-  const slides = document.querySelectorAll('.hslide');
+  const slides = document.querySelectorAll('#hero-slides .hslide');
+  const dots   = document.querySelectorAll('#hero-dots .hdot');
   if(!slides.length) return;
-  if(idx < 0) idx = slides.length-1;
+  if(idx < 0) idx = slides.length - 1;
   if(idx >= slides.length) idx = 0;
   window._heroIdx = idx;
   slides.forEach((s,i) => s.classList.toggle('active', i===idx));
-  document.querySelectorAll('.hdot').forEach((d,i) => d.classList.toggle('active', i===idx));
+  dots.forEach((d,i) => d.classList.toggle('active', i===idx));
 };
 
 // touch swipe hero
@@ -532,6 +530,8 @@ window.openContent = async (id) => {
 
     // أزرار المشاهدة والتحميل
     renderContentActions(c);
+    // تقييم المستخدم
+    initUserRating(id);
 
     // مواسم وحلقات
     if(c.type === "مسلسل" || c.type === "أنمي"){
@@ -682,13 +682,14 @@ window.loadEpisodes = async (workId, c) => {
         ${seasons[s][0]?.seasonDownload ? `<a href="${sanitize(seasons[s][0].seasonDownload)}" target="_blank" rel="noopener" class="season-dl-btn">⬇️ تحميل الموسم ${s} كاملاً</a>` : ""}
         <div class="eps-grid">
           ${seasons[s].map(ep=>`
-            <div class="ep-item">
+            <div class="ep-item" id="ep-item-${ep.id}">
               <div class="ep-num">ح${ep.episode||"?"}</div>
               <div class="ep-title">${sanitize(ep.title||`الحلقة ${ep.episode}`)}</div>
               ${ep.quality?`<div class="ep-q">${sanitize(ep.quality)}</div>`:""}
               <div class="ep-actions">
                 <button class="ep-watch-btn" onclick="selectEpisode('${ep.id}',this)">▶️ شاهد</button>
                 ${ep.downloadLinks?.length?`<a href="${sanitize(ep.downloadLinks[0].url)}" target="_blank" rel="noopener" class="ep-dl-btn" onclick="event.stopPropagation()">⬇️ تحميل</a>`:""}
+                ${window.isAdmin&&window.isAdmin()?`<button class="ep-admin-del" onclick="deleteEpisode('${ep.id}',event)" title="حذف الحلقة">🗑️</button>`:""}
               </div>
             </div>`).join("")}
         </div>
@@ -739,7 +740,12 @@ window.selectEpisode = (epId, btn) => {
       <span>${sanitize(srv.name||'سيرفر '+(i+1))}</span>
     </button>`).join("");
   // تشغيل السيرفر الأول تلقائياً
-  if(servers[0]?.url) openPlayer(servers[0].url, ep.title||`الحلقة ${ep.episode}`);
+  if(servers[0]?.url){
+    openPlayer(servers[0].url, ep.title||`الحلقة ${ep.episode}`);
+    // حفظ متابعة المشاهدة
+    const c = window._currentContent;
+    if(c) saveContinueWatching(c.id, ep.id, ep.episode, ep.title||`الحلقة ${ep.episode}`, c.title, c.poster);
+  }
   serversWrap.scrollIntoView({behavior:"smooth", block:"nearest"});
 };
 
@@ -1175,7 +1181,211 @@ window.addDownloadLinkRow = () => {
   wrap.appendChild(row);
 };
 
-// ─── ADMIN: ADD EPISODE (سيرفرات متعددة) ───
+// ─── تقييم المستخدم بالنجوم ───
+window.previewStars = (n) => {
+  document.querySelectorAll('.ustar').forEach((s,i) => {
+    s.style.color = i < n ? '#f5a623' : 'rgba(255,255,255,.2)';
+  });
+};
+window.resetStars = () => {
+  const c = window._currentContent;
+  const myR = c ? getUserRating(c.id) : 0;
+  updateUserStarsUI(myR);
+};
+function getUserRating(id){
+  try{ return parseInt(localStorage.getItem(`rate_${id}`)||"0")||0; } catch(e){ return 0; }
+}
+function updateUserStarsUI(n){
+  document.querySelectorAll('.ustar').forEach((s,i) => {
+    s.style.color = i < n ? '#f5a623' : 'rgba(255,255,255,.2)';
+  });
+  const lbl = G("user-rating-label");
+  const labels = ["","ضعيف","مقبول","جيد","جيد جداً","ممتاز"];
+  if(lbl) lbl.textContent = n ? labels[n]||"" : "";
+}
+window.rateContent = async (n) => {
+  const c = window._currentContent;
+  if(!c) return;
+  if(!CU) return toast("سجّل الدخول للتقييم","w");
+  try{
+    localStorage.setItem(`rate_${c.id}`, String(n));
+    updateUserStarsUI(n);
+    toast(`✅ قيّمت بـ ${n}/5`);
+    // تحديث متوسط التقييم في Firestore
+    const {db, doc, getDoc, updateDoc} = window._fb();
+    const ref = doc(db,"fc_content",c.id);
+    const snap = await getDoc(ref);
+    if(snap.exists()){
+      const d = snap.data();
+      const ratings = d.userRatings||{};
+      ratings[CU.uid] = n;
+      const vals = Object.values(ratings);
+      const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+      await updateDoc(ref,{userRatings: ratings, rating: Math.round(avg*10)/10});
+      // تحديث العرض
+      const rn = G("cm-rating-num");
+      if(rn) rn.textContent = `⭐ ${avg.toFixed(1)} (${vals.length})`;
+    }
+  } catch(e){ toast("❌ فشل التقييم","e"); }
+};
+
+// تهيئة نجوم المستخدم عند فتح المحتوى
+function initUserRating(contentId){
+  const row = G("user-rating-row");
+  if(!CU){ if(row) row.style.display="none"; return; }
+  if(row) row.style.display="flex";
+  updateUserStarsUI(getUserRating(contentId));
+}
+
+// ─── فلتر السنة الديناميكي ───
+window.buildYearFilter = () => {
+  const years = [...new Set((window._allContent||[]).map(c=>c.year).filter(Boolean))].sort((a,b)=>b-a);
+  const wrap = G("year-filter-chips");
+  if(!wrap||!years.length) return;
+  wrap.innerHTML = `<div class="chip active" onclick="setFilter('year','all',this)">الكل</div>` +
+    years.map(y=>`<div class="chip" onclick="setFilter('year','${y}',this)">${y}</div>`).join("");
+};
+
+// ─── إشعار حلقة جديدة ───
+window.checkNewEpisodes = () => {
+  if(!CU) return;
+  try{
+    const lastCheck = parseInt(localStorage.getItem(`lastEpCheck_${CU.uid}`)||"0");
+    const now = Date.now();
+    if(now - lastCheck < 3600000) return; // مرة كل ساعة فقط
+    localStorage.setItem(`lastEpCheck_${CU.uid}`, String(now));
+    const {db, collection, query, where, orderBy, limit, getDocs, Timestamp} = window._fb();
+    // حلقات أُضيفت في آخر 24 ساعة
+    const since = new Date(now - 86400000);
+    getDocs(query(
+      collection(db,"fc_episodes"),
+      orderBy("createdAt","desc"),
+      limit(5)
+    )).then(snap => {
+      const newEps = snap.docs.filter(d => {
+        const t = d.data().createdAt?.toDate?.();
+        return t && t > since;
+      });
+      if(newEps.length > 0){
+        showNewEpBadge(newEps.length);
+      }
+    }).catch(()=>{});
+  } catch(e){}
+};
+
+function showNewEpBadge(count){
+  const existing = G("new-ep-toast");
+  if(existing) existing.remove();
+  const div = document.createElement("div");
+  div.id = "new-ep-toast";
+  div.className = "new-ep-toast";
+  div.innerHTML = `🆕 ${count} حلقة جديدة أُضيفت! <button onclick="this.parentElement.remove();document.getElementById('browse-sec').scrollIntoView({behavior:'smooth'})">شاهد الآن ←</button>`;
+  document.body.appendChild(div);
+  setTimeout(()=>{ if(div.parentElement) div.remove(); }, 8000);
+}
+window.deleteEpisode = async (epId, ev) => {
+  ev?.stopPropagation();
+  if(!isAdmin()) return;
+  if(!confirm("🗑️ حذف هذه الحلقة نهائياً؟")) return;
+  try{
+    const {db, doc, deleteDoc} = window._fb();
+    await deleteDoc(doc(db,"fc_episodes", epId));
+    const el = G(`ep-item-${epId}`);
+    if(el) el.remove();
+    if(window._episodesData) delete window._episodesData[epId];
+    toast("🗑️ تم حذف الحلقة");
+  } catch(e){ toast("❌ فشل الحذف: "+e.message,"e"); }
+};
+
+// ─── متابعة المشاهدة ───
+window.saveContinueWatching = (contentId, epId, epNum, epTitle, contentTitle, poster) => {
+  if(!CU) return;
+  try{
+    const key = `cw_${CU.uid}`;
+    const cw = JSON.parse(localStorage.getItem(key)||"[]");
+    const filtered = cw.filter(x => x.contentId !== contentId);
+    filtered.unshift({contentId, epId, epNum, epTitle, contentTitle, poster, ts: Date.now()});
+    localStorage.setItem(key, JSON.stringify(filtered.slice(0,20)));
+    renderContinueWatching();
+  } catch(e){}
+};
+
+window.renderContinueWatching = () => {
+  if(!CU) return;
+  const wrap = G("continue-watching-wrap");
+  const section = G("continue-watching-section");
+  if(!wrap||!section) return;
+  try{
+    const key = `cw_${CU.uid}`;
+    const cw = JSON.parse(localStorage.getItem(key)||"[]");
+    if(!cw.length){ section.style.display="none"; return; }
+    section.style.display="block";
+    wrap.innerHTML = cw.slice(0,10).map(item=>`
+      <div class="cw-card" onclick="openContent('${item.contentId}')">
+        <div class="cw-poster" style="background:url('${sanitize(item.poster||"")}') center/cover no-repeat"></div>
+        <div class="cw-info">
+          <div class="cw-title">${sanitize(item.contentTitle||"")}</div>
+          <div class="cw-ep">ح${item.epNum} — ${sanitize(item.epTitle||"")}</div>
+        </div>
+        <button class="cw-del" onclick="removeCW('${item.contentId}',event)" title="إزالة">✕</button>
+      </div>`).join("");
+  } catch(e){}
+};
+
+window.removeCW = (contentId, ev) => {
+  ev?.stopPropagation();
+  if(!CU) return;
+  try{
+    const key = `cw_${CU.uid}`;
+    const cw = JSON.parse(localStorage.getItem(key)||"[]").filter(x=>x.contentId!==contentId);
+    localStorage.setItem(key, JSON.stringify(cw));
+    renderContinueWatching();
+  } catch(e){}
+};
+
+// ─── إحصائيات الأدمن ───
+window.showAdminStats = async () => {
+  if(!isAdmin()) return;
+  const modal = G("m-admin-stats");
+  if(!modal) return;
+  openModal("m-admin-stats");
+  const body = G("admin-stats-body");
+  if(body) body.innerHTML = '<div style="text-align:center;padding:2rem">⏳ جاري التحميل...</div>';
+  try{
+    const {db, collection, getDocs, query, orderBy, limit} = window._fb();
+    const [contentSnap, epSnap] = await Promise.all([
+      getDocs(collection(db,"fc_content")),
+      getDocs(collection(db,"fc_episodes"))
+    ]);
+    const contents = contentSnap.docs.map(d=>({id:d.id,...d.data()}));
+    const totalViews = contents.reduce((s,c)=>s+(c.views||0),0);
+    const movies = contents.filter(c=>c.type==="أفلام").length;
+    const series = contents.filter(c=>c.type==="مسلسل"||c.type==="أنمي").length;
+    const topContent = [...contents].sort((a,b)=>(b.views||0)-(a.views||0)).slice(0,5);
+
+    if(body) body.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-num">${contents.length}</div><div class="stat-label">إجمالي المحتوى</div></div>
+        <div class="stat-card"><div class="stat-num">${movies}</div><div class="stat-label">أفلام</div></div>
+        <div class="stat-card"><div class="stat-num">${series}</div><div class="stat-label">مسلسلات/أنمي</div></div>
+        <div class="stat-card"><div class="stat-num">${epSnap.size}</div><div class="stat-label">حلقات</div></div>
+        <div class="stat-card" style="grid-column:1/-1"><div class="stat-num">${totalViews.toLocaleString()}</div><div class="stat-label">إجمالي المشاهدات</div></div>
+      </div>
+      <div class="cm-section-title" style="margin-top:1rem">🔥 الأكثر مشاهدة</div>
+      ${topContent.map((c,i)=>`
+        <div class="stat-top-item" onclick="closeModal('m-admin-stats');openContent('${c.id}')">
+          <span class="stat-rank">${i+1}</span>
+          <img src="${sanitize(c.poster||"")}" style="width:36px;height:52px;object-fit:cover;border-radius:4px;flex-shrink:0">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:.85rem;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sanitize(c.title||"")}</div>
+            <div style="font-size:.72rem;color:var(--mu)">${sanitize(c.type||"")} • ${c.year||""}</div>
+          </div>
+          <div style="font-size:.85rem;font-weight:800;color:var(--gold)">👁️ ${(c.views||0).toLocaleString()}</div>
+        </div>`).join("")}`;
+  } catch(e){
+    if(body) body.innerHTML = '<div style="color:var(--red);text-align:center">❌ فشل التحميل</div>';
+  }
+};
 window.doAddEpisode = async () => {
   if(!isAdmin()) return toast("⛔ أدمن فقط","e");
   const contentId = G("ep-content-id")?.value?.trim();
@@ -1260,51 +1470,30 @@ window.doBulkEpisodes = async () => {
   if(!isAdmin()) return toast("⛔ أدمن فقط","e");
   const contentId = G("bulk-content-id")?.value?.trim();
   const season    = parseInt(G("bulk-season")?.value)||1;
-  const srvName   = G("bulk-srv-name")?.value?.trim() || "السيرفر الرئيسي";
   const seasonDl  = G("bulk-season-dl")?.value?.trim()||"";
-  const rawText   = G("bulk-text")?.value?.trim();
+  const quality   = G("bulk-quality")?.value||"";
+  const startEp   = parseInt(G("bulk-start-ep")?.value)||1;
 
   if(!contentId) return toast("⚠️ اختر المسلسل أولاً","w");
-  if(!rawText)   return toast("⚠️ ألصق الروابط أولاً","w");
 
-  // استخراج الروابط
-  const lines = rawText.split(/\n+/).map(l=>l.trim()).filter(Boolean);
-  const parsed = [];
-
-  lines.forEach(line => {
-    // تجاهل تعليقات HTML <!-- -->
-    if(line.startsWith('<!--') || line.startsWith('-->')) return;
-    // استخراج روابط من HTML href
-    const hrefMatches = line.match(/href=["']([^"']+)["']/gi);
-    if(hrefMatches){
-      hrefMatches.forEach(m => {
-        const url = m.replace(/href=["']/i,"").replace(/["']$/,"");
-        if(url.startsWith("http")) parsed.push({url, label:""});
-      });
-      return;
-    }
-    // نص | رابط
-    const pipeMatch = line.match(/^(.+?)\s*[|\-]\s*(https?:\/\/.+)$/);
-    if(pipeMatch){ parsed.push({label:pipeMatch[1].trim(), url:pipeMatch[2].trim()}); return; }
-    // رابط مباشر
-    const urlMatch = line.match(/(https?:\/\/[^\s]+)/);
-    if(urlMatch){ parsed.push({url:urlMatch[1], label:""}); return; }
+  const watchBlocks = [];
+  document.querySelectorAll("#bulk-servers-wrap .bulk-srv-block").forEach(block => {
+    const name = block.querySelector(".bulk-srv-name")?.value?.trim() || "سيرفر";
+    const urls = extractUrlsFromText(block.querySelector(".bulk-srv-urls")?.value||"");
+    if(urls.length) watchBlocks.push({name, urls});
   });
 
-  if(!parsed.length) return toast("⚠️ لم يتم العثور على أي روابط","w");
+  const dlBlocks = [];
+  document.querySelectorAll("#bulk-dl-wrap .bulk-srv-block").forEach(block => {
+    const name = block.querySelector(".bulk-srv-name")?.value?.trim() || "تحميل";
+    const urls = extractUrlsFromText(block.querySelector(".bulk-srv-urls")?.value||"");
+    if(urls.length) dlBlocks.push({name, urls});
+  });
 
-  // استخراج روابط التحميل
-  const dlRawText = G("bulk-dl-text")?.value?.trim();
-  const dlUrls = [];
-  if(dlRawText){
-    dlRawText.split(/\n+/).map(l=>l.trim()).filter(Boolean).forEach(line => {
-      const urlMatch = line.match(/(https?:\/\/[^\s]+)/);
-      if(urlMatch) dlUrls.push(urlMatch[1]);
-    });
-  }
+  if(!watchBlocks.length) return toast("⚠️ أضف سيرفر مشاهدة واحداً على الأقل","w");
+  const epCount = watchBlocks[0].urls.length;
+  if(!epCount) return toast("⚠️ لم يتم العثور على روابط","w");
 
-  const startEp = parseInt(G("bulk-start-ep")?.value)||1;
-  const quality = G("bulk-quality")?.value||"";
   setBL("btn-bulk-add", true);
   const prog = G("bulk-progress");
   if(prog) prog.textContent = "⏳ جاري الإضافة...";
@@ -1312,37 +1501,51 @@ window.doBulkEpisodes = async () => {
   let added = 0;
   try{
     const {db, collection, addDoc, serverTimestamp} = window._fb();
-    for(let i = 0; i < parsed.length; i++){
-      const {url, label} = parsed[i];
+    for(let i = 0; i < epCount; i++){
       const epNum = startEp + i;
+      const servers = watchBlocks.map(b=>({name:b.name, url:b.urls[i]||""})).filter(s=>s.url);
+      const downloadLinks = dlBlocks.map(b=>({name:b.name, url:b.urls[i]||""})).filter(d=>d.url);
+      if(!servers.length) continue;
       try{
         await addDoc(collection(db,"fc_episodes"),{
           contentId, season, episode: epNum,
-          title: label || `الحلقة ${epNum}`,
-          embedUrl: url,
-          servers: [{name: srvName, url}],
-          downloadLinks: dlUrls[i] ? [{name: 'تحميل', url: dlUrls[i]}] : null,
-          quality,
-          seasonDownload: seasonDl||null,
+          title: "الحلقة "+epNum,
+          embedUrl: servers[0].url,
+          servers,
+          downloadLinks: downloadLinks.length ? downloadLinks : null,
+          quality, seasonDownload: seasonDl||null,
           createdAt: serverTimestamp()
         });
         added++;
-        if(prog) prog.textContent = `⏳ تم إضافة ${added} من ${parsed.length}...`;
+        if(prog) prog.textContent = "⏳ تم إضافة "+added+" من "+epCount+"...";
       } catch(e){ console.warn("ep error:", epNum, e.message); }
     }
   } catch(e){
-    console.error("bulk error:", e);
     toast("❌ خطأ: "+e.message,"e");
     setBL("btn-bulk-add", false);
     return;
   }
-
-  if(prog) prog.textContent = `✅ تم إضافة ${added} حلقة!`;
-  toast(`✅ تمت إضافة ${added} حلقة بنجاح!`);
+  if(prog) prog.textContent = "✅ تم إضافة "+added+" حلقة!";
+  toast("✅ تمت إضافة "+added+" حلقة بنجاح!");
   setBL("btn-bulk-add", false);
   const si = G("bulk-start-ep");
   if(si) si.value = startEp + added;
 };
+
+function extractUrlsFromText(text){
+  if(!text) return [];
+  const results = [];
+  text.split(/\n+/).map(l=>l.trim()).filter(Boolean).forEach(line => {
+    if(line.startsWith("<!--") || line.startsWith("-->")) return;
+    const hrefMatch = line.match(/href=["']([^"']+)["']/i);
+    if(hrefMatch && hrefMatch[1].startsWith("http")){ results.push(hrefMatch[1]); return; }
+    const pipeMatch = line.match(/^.+?\s*\|\s*(https?:\/\/.+)$/);
+    if(pipeMatch){ results.push(pipeMatch[1].trim()); return; }
+    const urlMatch = line.match(/(https?:\/\/[^\s]+)/);
+    if(urlMatch) results.push(urlMatch[1]);
+  });
+  return results;
+}
 
 // ─── ADMIN: DELETE ───
 window.adminDeleteContent = async () => {
@@ -1814,7 +2017,43 @@ body{
 .srv-btn.active{ background:var(--red); border-color:var(--red); color:#fff; }
 .srv-icon{ font-size:.9rem; }
 
-/* ─── TMDB ─── */
+/* ─── USER RATING ─── */
+.user-rating-row{ display:flex; align-items:center; gap:.5rem; margin-bottom:.6rem; }
+.user-stars{ display:flex; gap:.1rem; }
+.ustar{ font-size:1.4rem; color:rgba(255,255,255,.2); cursor:pointer; transition:color .15s; user-select:none; }
+
+/* ─── NEW EP TOAST ─── */
+.new-ep-toast{
+  position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+  background:rgba(16,185,129,.92); color:#fff; font-family:'Tajawal';
+  font-size:.85rem; font-weight:800; padding:.65rem 1.1rem; border-radius:12px;
+  z-index:9999; display:flex; align-items:center; gap:.6rem; backdrop-filter:blur(8px);
+  box-shadow:0 4px 24px rgba(0,0,0,.4); animation:slideUp .3s ease;
+  white-space:nowrap;
+}
+.new-ep-toast button{ background:rgba(255,255,255,.2); border:none; color:#fff; font-family:'Tajawal'; font-size:.82rem; font-weight:800; padding:.3rem .7rem; border-radius:8px; cursor:pointer; }
+@keyframes slideUp{ from{opacity:0;transform:translateX(-50%) translateY(20px)} to{opacity:1;transform:translateX(-50%) translateY(0)} }
+.cw-card{ display:flex; align-items:center; gap:.6rem; background:rgba(255,255,255,.04); border:1px solid var(--br); border-radius:10px; padding:.5rem; min-width:220px; max-width:260px; cursor:pointer; transition:all .2s; flex-shrink:0; position:relative; }
+.cw-card:hover{ border-color:var(--red); background:rgba(229,9,20,.06); }
+.cw-poster{ width:44px; height:62px; border-radius:6px; flex-shrink:0; background:#111 center/cover; }
+.cw-info{ flex:1; min-width:0; }
+.cw-title{ font-size:.8rem; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cw-ep{ font-size:.7rem; color:var(--mu); margin-top:.2rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cw-del{ position:absolute; top:.3rem; left:.3rem; background:rgba(229,9,20,.15); border:none; color:var(--red); border-radius:50%; width:20px; height:20px; font-size:.65rem; cursor:pointer; display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity .2s; }
+.cw-card:hover .cw-del{ opacity:1; }
+
+/* ─── ADMIN STATS ─── */
+.stats-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:.6rem; margin-bottom:1rem; }
+.stat-card{ background:rgba(255,255,255,.04); border:1px solid var(--br); border-radius:10px; padding:.8rem; text-align:center; }
+.stat-num{ font-size:1.6rem; font-weight:900; color:var(--red); }
+.stat-label{ font-size:.75rem; color:var(--mu); margin-top:.2rem; }
+.stat-top-item{ display:flex; align-items:center; gap:.6rem; padding:.5rem; border-radius:8px; cursor:pointer; transition:all .2s; margin-bottom:.3rem; }
+.stat-top-item:hover{ background:rgba(255,255,255,.05); }
+.stat-rank{ font-size:.85rem; font-weight:900; color:var(--gold); min-width:20px; text-align:center; }
+
+/* ─── EP ADMIN DEL ─── */
+.ep-admin-del{ font-family:'Tajawal'; font-size:.72rem; padding:.25rem .45rem; border-radius:5px; border:1px solid rgba(229,9,20,.3); background:rgba(229,9,20,.08); color:var(--red); cursor:pointer; transition:all .2s; flex-shrink:0; }
+.ep-admin-del:hover{ background:var(--red); color:#fff; }
 .tmdb-search-box{ background:rgba(1,180,228,.06); border:1.5px solid rgba(1,180,228,.2); border-radius:12px; padding:.9rem; margin-bottom:1rem; }
 .tmdb-result-item{ display:flex; align-items:center; gap:.7rem; background:rgba(255,255,255,.04); border:1px solid var(--br); border-radius:8px; padding:.5rem .7rem; cursor:pointer; transition:all .2s; }
 .tmdb-result-item:hover{ background:rgba(1,180,228,.1); border-color:rgba(1,180,228,.4); }
@@ -1823,7 +2062,8 @@ body{
 .ep-tab.active{ background:var(--red); color:#fff; }
 .ep-tab-content{ display:none; }
 .ep-tab-content.active{ display:block; }
-.series-select-wrap{ display:flex; gap:.5rem; align-items:center; }
+.bulk-srv-block{ background:rgba(255,255,255,.03); border:1px solid var(--br); border-radius:8px; padding:.6rem; margin-bottom:.5rem; }
+.bulk-srv-header{ display:flex; gap:.4rem; margin-bottom:.4rem; align-items:center; }
 .series-select-wrap .fc{ flex:1; }
 .refresh-series-btn{ background:rgba(255,255,255,.07); border:1px solid var(--br); color:var(--w); border-radius:8px; width:38px; height:38px; cursor:pointer; font-size:1rem; flex-shrink:0; transition:all .2s; }
 .refresh-series-btn:hover{ background:rgba(229,9,20,.15); border-color:var(--red); }
@@ -1983,6 +2223,7 @@ body.light-mode{
     </div>
     <button class="sbtn" onclick="closeSidebar();openModal('m-add-content')" id="sb-admin-btn" style="display:none;margin-bottom:.5rem">➕ إضافة محتوى</button>
     <button class="sbtn" onclick="closeSidebar();openModal('m-add-episode')" id="sb-ep-btn" style="display:none;background:rgba(59,130,246,.8);margin-bottom:.5rem">📺 إضافة حلقة</button>
+    <button class="sbtn" onclick="closeSidebar();showAdminStats()" id="sb-stats-btn" style="display:none;background:rgba(245,166,35,.7);margin-bottom:.5rem">📊 الإحصائيات</button>
   </div>
 
   <div class="sb-nav">
@@ -2040,6 +2281,14 @@ body.light-mode{
     <div class="gpill" onclick="setFilter('genre','فانتازيا',this)"><div class="gpill-icon">🧙</div>فانتازيا</div>
     <div class="gpill" onclick="setFilter('genre','جريمة',this)"><div class="gpill-icon">🔍</div>جريمة</div>
     <div class="gpill" onclick="setFilter('genre','مغامرة',this)"><div class="gpill-icon">🗺️</div>مغامرة</div>
+  </div>
+
+  <!-- CONTINUE WATCHING -->
+  <div class="section" id="continue-watching-section" style="display:none">
+    <div class="section-head">
+      <div class="section-title">▶️ متابعة المشاهدة</div>
+    </div>
+    <div class="hscroll" id="continue-watching-wrap"></div>
   </div>
 
   <!-- TRENDING -->
@@ -2113,6 +2362,12 @@ body.light-mode{
           <div class="chip" onclick="setFilter('quality','1080p',this)">1080p</div>
           <div class="chip" onclick="setFilter('quality','720p',this)">720p</div>
           <div class="chip" onclick="setFilter('quality','480p',this)">480p</div>
+        </div>
+      </div>
+      <div class="filter-group">
+        <div class="filter-group-label">📅 السنة</div>
+        <div class="chips-row" id="year-filter-chips">
+          <div class="chip active" onclick="setFilter('year','all',this)">الكل</div>
         </div>
       </div>
       <div class="filter-group">
@@ -2211,6 +2466,19 @@ body.light-mode{
         <span class="cm-stars" id="cm-stars"></span>
         <span class="cm-rating-num" id="cm-rating-num"></span>
         <span class="cm-views" id="cm-views"></span>
+      </div>
+
+      <!-- USER RATING -->
+      <div class="user-rating-row" id="user-rating-row">
+        <span style="font-size:.78rem;color:var(--mu)">تقييمك:</span>
+        <div class="user-stars" id="user-stars">
+          <span class="ustar" onclick="rateContent(1)" onmouseover="previewStars(1)" onmouseout="resetStars()">★</span>
+          <span class="ustar" onclick="rateContent(2)" onmouseover="previewStars(2)" onmouseout="resetStars()">★</span>
+          <span class="ustar" onclick="rateContent(3)" onmouseover="previewStars(3)" onmouseout="resetStars()">★</span>
+          <span class="ustar" onclick="rateContent(4)" onmouseover="previewStars(4)" onmouseout="resetStars()">★</span>
+          <span class="ustar" onclick="rateContent(5)" onmouseover="previewStars(5)" onmouseout="resetStars()">★</span>
+        </div>
+        <span id="user-rating-label" style="font-size:.75rem;color:var(--gold)"></span>
       </div>
 
       <!-- META -->
@@ -2441,32 +2709,28 @@ body.light-mode{
         <div class="fg"><label>بدءاً من الحلقة</label><input class="fc" id="bulk-start-ep" type="number" value="1" min="1"></div>
       </div>
       <div class="form-2col">
-        <div class="fg"><label>اسم السيرفر</label><input class="fc" id="bulk-srv-name" placeholder="مثال: Doodstream" value="Doodstream"></div>
         <div class="fg"><label>الجودة</label>
           <select class="fc" id="bulk-quality"><option value="">اختر</option><option>1080p</option><option>720p</option><option>480p</option></select>
         </div>
-      </div>
-      <div class="fg"><label>رابط تحميل الموسم كاملاً <span class="opt"></span></label>
-        <input class="fc" id="bulk-season-dl" type="url" placeholder="https://...">
-      </div>
-      <div class="fg">
-        <label>📋 الصق روابط المشاهدة هنا</label>
-        <div style="background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:.7rem;font-size:.75rem;color:rgba(255,255,255,.5);margin-bottom:.5rem;line-height:1.7">
-          الصيغ المدعومة:<br>
-          • رابط مباشر في كل سطر<br>
-          • <code style="color:#60a5fa">الحلقة 1 | https://dood.to/e/xxx</code><br>
-          • HTML من savefiles (يستخرج الروابط تلقائياً)
+        <div class="fg"><label>رابط تحميل الموسم كاملاً <span class="opt"></span></label>
+          <input class="fc" id="bulk-season-dl" type="url" placeholder="https://...">
         </div>
-        <textarea class="fc" id="bulk-text" rows="6" placeholder="https://playmogo.com/d/abc&#10;https://playmogo.com/d/def&#10;..."></textarea>
       </div>
-      <!-- روابط التحميل بالجملة -->
+
+      <!-- سيرفرات المشاهدة المتعددة -->
       <div class="fg">
-        <label>⬇️ الصق روابط التحميل هنا <span class="opt"></span></label>
-        <div style="background:rgba(16,185,129,.07);border:1px solid rgba(16,185,129,.2);border-radius:8px;padding:.6rem;font-size:.75rem;color:rgba(255,255,255,.5);margin-bottom:.5rem;line-height:1.6">
-          نفس العدد والترتيب كروابط المشاهدة — رابط واحد لكل سطر
-        </div>
-        <textarea class="fc" id="bulk-dl-text" rows="6" placeholder="https://savefiles.com/abc&#10;https://savefiles.com/def&#10;..."></textarea>
+        <label>🖥️ سيرفرات المشاهدة</label>
+        <div id="bulk-servers-wrap"></div>
+        <button class="add-link-btn" onclick="addBulkServerBlock()">+ إضافة سيرفر مشاهدة</button>
       </div>
+
+      <!-- سيرفرات التحميل المتعددة -->
+      <div class="fg">
+        <label>⬇️ سيرفرات التحميل <span class="opt"></span></label>
+        <div id="bulk-dl-wrap"></div>
+        <button class="add-link-btn" onclick="addBulkDlBlock()">+ إضافة سيرفر تحميل</button>
+      </div>
+
       <div id="bulk-progress" style="text-align:center;font-size:.85rem;color:var(--green);min-height:1.5em"></div>
       <button class="sbtn" id="btn-bulk-add" onclick="doBulkEpisodes()">🚀 إضافة الحلقات بالجملة</button>
     </div>
@@ -2486,6 +2750,7 @@ function openSidebar(){
   if(window.isAdmin && window.isAdmin()){
     const ab=G('sb-admin-btn'); if(ab) ab.style.display='block';
     const eb=G('sb-ep-btn'); if(eb) eb.style.display='block';
+    const stb=G('sb-stats-btn'); if(stb) stb.style.display='block';
   }
 }
 function closeSidebar(){
@@ -2509,6 +2774,8 @@ window.openModal = function(id){
   if(id === 'm-add-episode'){
     const wrap = G('ep-servers-wrap-admin');
     if(wrap && !wrap.children.length && window.addServerRow) window.addServerRow();
+    const bwrap = G('bulk-servers-wrap');
+    if(bwrap && !bwrap.children.length && window.addBulkServerBlock) window.addBulkServerBlock();
     loadSeriesOptions();
   }
 };
@@ -2603,6 +2870,14 @@ window.loadMoreContent = async () => {
   }catch(e){}
 };
 </script>
+<!-- ADMIN STATS MODAL -->
+<div class="mo" id="m-admin-stats">
+  <div class="md wide" style="max-width:560px">
+    <div class="mh"><h2>📊 إحصائيات الموقع</h2><button class="mclose" onclick="closeModal('m-admin-stats')">✕</button></div>
+    <div id="admin-stats-body"></div>
+  </div>
+</div>
+
   <script>
     const fy = document.getElementById('footer-year');
     if(fy) fy.textContent = new Date().getFullYear();
