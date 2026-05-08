@@ -1713,6 +1713,40 @@ window.addServerRow = (name="", url="") => {
   wrap.appendChild(row);
 };
 
+// ─── Bulk: إضافة بلوك سيرفر مشاهدة ───
+window.addBulkServerBlock = (name="", urls="") => {
+  const wrap = G("bulk-servers-wrap");
+  if(!wrap) return;
+  const block = document.createElement("div");
+  block.className = "bulk-srv-block";
+  block.style.cssText = "background:rgba(255,255,255,.03);border:1px solid var(--br);border-radius:10px;padding:.7rem;margin-bottom:.6rem";
+  block.innerHTML = `
+    <div style="display:flex;gap:.5rem;margin-bottom:.5rem;align-items:center">
+      <input class="fc bulk-srv-name" value="${sanitize(name)}" placeholder="اسم السيرفر (مثال: Doodstream)" style="flex:1">
+      <button onclick="this.closest('.bulk-srv-block').remove()" class="rm-btn" style="flex-shrink:0">✕</button>
+    </div>
+    <textarea class="fc bulk-srv-urls" rows="4" placeholder="ضع روابط Embed هنا — رابط لكل سطر&#10;https://dood.la/e/abc123&#10;https://dood.la/e/def456&#10;..." style="width:100%;resize:vertical;font-size:.78rem;direction:ltr">${sanitize(urls)}</textarea>
+    <div style="font-size:.72rem;color:var(--mu);margin-top:.3rem">كل رابط = حلقة واحدة بالترتيب</div>`;
+  wrap.appendChild(block);
+};
+
+// ─── Bulk: إضافة بلوك سيرفر تحميل ───
+window.addBulkDlBlock = (name="", urls="") => {
+  const wrap = G("bulk-dl-wrap");
+  if(!wrap) return;
+  const block = document.createElement("div");
+  block.className = "bulk-srv-block";
+  block.style.cssText = "background:rgba(255,255,255,.03);border:1px solid var(--br);border-radius:10px;padding:.7rem;margin-bottom:.6rem";
+  block.innerHTML = `
+    <div style="display:flex;gap:.5rem;margin-bottom:.5rem;align-items:center">
+      <input class="fc bulk-srv-name" value="${sanitize(name)}" placeholder="اسم سيرفر التحميل (مثال: Mediafire)" style="flex:1">
+      <button onclick="this.closest('.bulk-srv-block').remove()" class="rm-btn" style="flex-shrink:0">✕</button>
+    </div>
+    <textarea class="fc bulk-srv-urls" rows="4" placeholder="ضع روابط التحميل هنا — رابط لكل سطر&#10;https://mediafire.com/file/abc&#10;https://mediafire.com/file/def&#10;..." style="width:100%;resize:vertical;font-size:.78rem;direction:ltr">${sanitize(urls)}</textarea>
+    <div style="font-size:.72rem;color:var(--mu);margin-top:.3rem">كل رابط = حلقة واحدة بالترتيب</div>`;
+  wrap.appendChild(block);
+};
+
 // ─── ADMIN: إضافة حلقات بالجملة ───
 window.doBulkEpisodes = async () => {
   if(!isAdmin()) return toast("⛔ أدمن فقط","e");
