@@ -3624,12 +3624,12 @@ window.loadSeriesOptions = async () => {
     ));
     const items = snap.docs
       .map(d=>({id:d.id,...d.data()}))
-      .filter(c => c.type === 'مسلسل' || c.type === 'أنمي');
+      .sort((a,b)=>(a.title||"").localeCompare(b.title||"","ar"));
 
     const optionsHtml = items.length
-      ? '<option value="">— اختر المسلسل —</option>' +
+      ? '<option value="">— اختر المحتوى —</option>' +
         items.map(c=>`<option value="${c.id}">${sanitize(c.title||'')} (${sanitize(c.type||'')})</option>`).join('')
-      : '<option value="">لا توجد مسلسلات بعد — أضف أولاً</option>';
+      : '<option value="">لا يوجد محتوى بعد — أضف أولاً</option>';
 
     selIds.forEach(id => {
       const el = G(id);
