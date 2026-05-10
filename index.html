@@ -267,8 +267,11 @@ window.loadContent = async () => {
     loadHero();
     loadTrending();
     loadLatest();
+    if(window.loadWeeklyTrending) loadWeeklyTrending();
     buildYearFilter();
     setTimeout(checkNewEpisodes, 2000);
+    // حفظ في localStorage للوضع Offline
+    try{ localStorage.setItem("fc_content_cache", JSON.stringify(window._allContent.slice(0,50))); } catch(e){}
   } catch(e){
     grid.innerHTML = '<div class="loading-state">❌ خطأ في التحميل</div>';
   }
@@ -713,6 +716,9 @@ window.openContent = async (id) => {
 
     loadComments(id);
     loadSimilar(id, c.type, c.genre);
+    // تقييم المستخدم
+    const myRating = c.userRatings?.[CU?.uid]||0;
+    renderUserRatingStars(id, myRating);
     openModal("m-content");
   } catch(e){ toast("❌ خطأ في التحميل","e"); }
 };
@@ -751,6 +757,8 @@ function renderContentActions(c){
 
   // أزرار ثابتة دائماً
   html += `<button class="ca-btn ca-wl" onclick="toggleWatchlist('${c.id}')">${isWL?"🔖 في قائمتي":"🔖 أضف للقائمة"}</button>`;
+  const isWatched = window.CUD?.watched?.includes(c.id);
+  html += `<button class="ca-btn" data-watched-id="${c.id}" onclick="toggleWatched('${c.id}',event)" style="background:${isWatched?'rgba(16,185,129,.15)':'rgba(255,255,255,.07)'};border:1px solid ${isWatched?'rgba(16,185,129,.3)':'rgba(255,255,255,.12)'};color:${isWatched?'#4ade80':'var(--w)'}">${isWatched?"👁️ شاهدته":"👁 شاهدته"}</button>`;
   html += `<button class="ca-btn ca-share" onclick="shareContent('${c.id}','${sanitize(c.title||"")}')">🔗 مشاركة</button>`;
 
   wrap.innerHTML = html;
@@ -1901,13 +1909,451 @@ function handleRoute(){
   else showPage("home");
 }
 
+// ══════════════════════════════════════════════════
+// 1. صفحة الملف الشخصي
+// ══════════════════════════════════════════════════
+window.openProfilePage = () => {
+  closeSidebar();
+  showPage("profile");
+};
+window.loadProfilePage = async () => {
+  if(!CU){ G("profile-body").innerHTML='<div class="empty-s">سجّل الدخول أولاً</div>'; return; }
+  const watched = CUD?.watched||[];
+  const watchlist = CUD?.watchlist||[];
+  const all = window._allContent||[];
+  // التصنيفات المفضلة
+  const genreCount = {};
+  watched.forEach(id=>{ const c=all.find(x=>x.id===id); if(c?.genre){ genreCount[c.genre]=(genreCount[c.genre]||0)+1; } });
+  const topGenres = Object.entries(genreCount).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([g])=>g);
+  const joinDate = CUD?.joinDate?.toDate ? CUD.joinDate.toDate().toLocaleDateString("ar-SA") : "";
+  G("profile-body").innerHTML = `
+    <div style="text-align:center;padding:1.5rem 1rem .8rem">
+      <div id="profile-avatar-wrap" style="position:relative;display:inline-block;margin-bottom:.7rem">
+        <div id="profile-avatar" style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,#e50914,#ff6b35);display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:900;border:3px solid rgba(229,9,20,.4);overflow:hidden;margin:auto">
+          ${CUD?.photoURL||CU.photoURL ? `<img src="${CUD?.photoURL||CU.photoURL}" style="width:100%;height:100%;object-fit:cover">` : (CUD?.name||CU.displayName||"م")[0].toUpperCase()}
+        </div>
+        <label for="profile-photo-input" style="position:absolute;bottom:0;left:0;width:24px;height:24px;background:var(--red);border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:.75rem">📷</label>
+        <input type="file" id="profile-photo-input" accept="image/*" style="display:none" onchange="uploadProfilePhoto(this)">
+      </div>
+      <div id="profile-name-display" style="font-size:1.1rem;font-weight:900">${sanitize(CUD?.name||CU.displayName||"مستخدم")}</div>
+      <div style="font-size:.75rem;color:var(--mu);margin-top:.2rem">${sanitize(CU.email||"")}</div>
+      ${joinDate?`<div style="font-size:.72rem;color:var(--mu);margin-top:.2rem">عضو منذ ${joinDate}</div>`:""}
+      <button onclick="editProfileName()" style="margin-top:.6rem;background:rgba(255,255,255,.06);border:1px solid var(--br);color:var(--mu);font-family:'Tajawal';font-size:.78rem;padding:.3rem .8rem;border-radius:8px;cursor:pointer">✏️ تعديل الاسم</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6rem;padding:.5rem 1rem 1rem">
+      <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:.8rem;text-align:center">
+        <div style="font-size:1.4rem;font-weight:900;color:var(--red)">${watched.length}</div>
+        <div style="font-size:.72rem;color:var(--mu)">شاهدته</div>
+      </div>
+      <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:.8rem;text-align:center">
+        <div style="font-size:1.4rem;font-weight:900;color:#60a5fa">${watchlist.length}</div>
+        <div style="font-size:.72rem;color:var(--mu)">قائمتي</div>
+      </div>
+      <div style="background:rgba(255,255,255,.04);border-radius:10px;padding:.8rem;text-align:center">
+        <div style="font-size:1.4rem;font-weight:900;color:#4ade80">${topGenres.length ? topGenres[0] : "—"}</div>
+        <div style="font-size:.72rem;color:var(--mu)">المفضل</div>
+      </div>
+    </div>
+    ${topGenres.length?`<div style="padding:.2rem 1rem .8rem"><div style="font-size:.75rem;color:var(--mu);margin-bottom:.4rem">🎭 تصنيفاتك المفضلة</div><div style="display:flex;flex-wrap:wrap;gap:.4rem">${topGenres.map(g=>`<span style="background:rgba(229,9,20,.12);border:1px solid rgba(229,9,20,.25);color:var(--red);font-size:.78rem;padding:.25rem .7rem;border-radius:20px">${sanitize(g)}</span>`).join("")}</div></div>`:""}
+    <div style="padding:.5rem 1rem 1rem;display:flex;flex-direction:column;gap:.5rem">
+      <button onclick="showPage('watched')" style="background:rgba(255,255,255,.04);border:1px solid var(--br);color:var(--w);font-family:'Tajawal';font-size:.85rem;font-weight:700;padding:.65rem;border-radius:10px;cursor:pointer;text-align:right">👁️ عرض ما شاهدته ←</button>
+      <button onclick="showPage('watchlist')" style="background:rgba(255,255,255,.04);border:1px solid var(--br);color:var(--w);font-family:'Tajawal';font-size:.85rem;font-weight:700;padding:.65rem;border-radius:10px;cursor:pointer;text-align:right">🔖 عرض قائمتي ←</button>
+      <button onclick="changePassword()" style="background:rgba(255,255,255,.04);border:1px solid var(--br);color:var(--mu);font-family:'Tajawal';font-size:.83rem;padding:.6rem;border-radius:10px;cursor:pointer;text-align:right">🔑 تغيير كلمة المرور ←</button>
+    </div>`;
+};
+
+window.editProfileName = async () => {
+  const newName = prompt("أدخل الاسم الجديد:", CUD?.name||CU.displayName||"");
+  if(!newName||!newName.trim()) return;
+  try{
+    const {db, doc, setDoc} = window._fb();
+    await setDoc(doc(db,"fc_users",CU.uid),{name:newName.trim()},{merge:true});
+    if(CUD) CUD.name = newName.trim();
+    toast("✅ تم تحديث الاسم");
+    loadProfilePage();
+  } catch(e){ toast("❌ فشل التحديث","e"); }
+};
+
+window.uploadProfilePhoto = async (input) => {
+  const file = input.files[0];
+  if(!file) return;
+  if(file.size > 2*1024*1024){ toast("⚠️ الصورة أكبر من 2MB","w"); return; }
+  // تحويل لـ base64 وضغط
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const img = new Image();
+    img.onload = async () => {
+      const canvas = document.createElement("canvas");
+      const MAX = 200;
+      const ratio = Math.min(MAX/img.width, MAX/img.height);
+      canvas.width = img.width*ratio; canvas.height = img.height*ratio;
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+      try{
+        const {db, doc, setDoc} = window._fb();
+        await setDoc(doc(db,"fc_users",CU.uid),{photoURL:dataUrl},{merge:true});
+        if(CUD) CUD.photoURL = dataUrl;
+        toast("✅ تم تحديث الصورة");
+        loadProfilePage();
+      } catch(e){ toast("❌ فشل رفع الصورة","e"); }
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+};
+
+window.changePassword = async () => {
+  if(!CU?.email) return toast("⚠️ هذا الخيار للحسابات بالبريد فقط","w");
+  try{
+    const {auth, sendPasswordResetEmail} = window._fbAuth();
+    await sendPasswordResetEmail(auth, CU.email);
+    toast("✅ تم إرسال رابط تغيير كلمة المرور لبريدك");
+  } catch(e){ toast("❌ فشل الإرسال","e"); }
+};
+
+// ══════════════════════════════════════════════════
+// 2. إشعار عند حلقة جديدة لمسلسل في قائمتك
+// ══════════════════════════════════════════════════
+window.checkNewEpisodesForWatchlist = async () => {
+  if(!CU || Notification.permission !== "granted") return;
+  const ids = CUD?.watchlist||[];
+  if(!ids.length) return;
+  const lastCheck = parseInt(localStorage.getItem("fc_ep_check")||"0");
+  const now = Date.now();
+  if(now - lastCheck < 15*60*1000) return; // كل 15 دقيقة
+  localStorage.setItem("fc_ep_check", String(now));
+  try{
+    const {db, collection, getDocs, query, where, orderBy, limit, Timestamp} = window._fb();
+    const since = Timestamp.fromMillis(lastCheck||now-24*3600*1000);
+    for(const contentId of ids.slice(0,10)){
+      const snap = await getDocs(query(
+        collection(db,"fc_episodes"),
+        where("contentId","==",contentId),
+        where("createdAt",">=",since),
+        limit(1)
+      ));
+      if(!snap.empty){
+        const c = window._allContent?.find(x=>x.id===contentId);
+        const ep = snap.docs[0].data();
+        new Notification(`🎬 حلقة جديدة!`, {
+          body: `${c?.title||"مسلسل"} — الحلقة ${ep.episode||""}`,
+          icon: c?.poster||"/favicon.ico",
+          tag: contentId
+        });
+      }
+    }
+  } catch(e){ console.log("ep notif:", e.message); }
+};
+// فحص عند تحميل الصفحة
+setTimeout(()=>{ if(CU) window.checkNewEpisodesForWatchlist(); }, 5000);
+
+// ══════════════════════════════════════════════════
+// 3. حفظ وقت التوقف في الفيديو
+// ══════════════════════════════════════════════════
+window._resumeData = {}; // { contentId_epId: seconds }
+
+window.saveVideoProgress = (contentId, epId, seconds) => {
+  if(!seconds || seconds < 10) return;
+  const key = `fc_prog_${contentId}_${epId||"movie"}`;
+  localStorage.setItem(key, String(Math.floor(seconds)));
+};
+
+window.getVideoProgress = (contentId, epId) => {
+  const key = `fc_prog_${contentId}_${epId||"movie"}`;
+  return parseInt(localStorage.getItem(key)||"0");
+};
+
+// تحقيق من وقت التوقف عند فتح المشغل
+const _origOpenPlayer = window.openPlayer;
+window.openPlayer = (embedUrl, title, contentId, epId) => {
+  _origOpenPlayer(embedUrl, title);
+  const saved = contentId ? getVideoProgress(contentId, epId) : 0;
+  if(saved > 30){
+    setTimeout(()=>{
+      const resumeBar = G("resume-bar");
+      if(resumeBar){
+        G("resume-time").textContent = new Date(saved*1000).toISOString().substr(11,8).replace(/^00:/,"");
+        resumeBar.style.display = "flex";
+        resumeBar._data = {embedUrl, saved, contentId, epId};
+      }
+    }, 1500);
+  }
+};
+
+window.resumeFromSaved = () => {
+  const bar = G("resume-bar");
+  if(!bar?._data) return;
+  const {embedUrl, saved} = bar._data;
+  bar.style.display = "none";
+  // نضيف #t=seconds للرابط إن أمكن
+  const sep = embedUrl.includes("?") ? "&" : "?";
+  const frame = G("player-frame");
+  if(frame) frame.src = `${embedUrl}${sep}t=${saved}`;
+};
+
+window.dismissResume = () => {
+  const bar = G("resume-bar");
+  if(bar) bar.style.display = "none";
+};
+
+// ══════════════════════════════════════════════════
+// 4. تقييم بالنجوم من المستخدمين
+// ══════════════════════════════════════════════════
+window.renderUserRatingStars = (contentId, userRating) => {
+  const wrap = G("user-rating-wrap");
+  if(!wrap) return;
+  wrap.innerHTML = `
+    <div style="font-size:.8rem;color:var(--mu);margin-bottom:.3rem">تقييمك:</div>
+    <div style="display:flex;gap:.2rem;direction:ltr">
+      ${[1,2,3,4,5].map(s=>`
+        <span onclick="submitUserRating('${contentId}',${s*2})" 
+          style="font-size:1.4rem;cursor:pointer;transition:transform .15s;color:${(userRating/2)>=s?'#f59e0b':'rgba(255,255,255,.2)'}"
+          onmouseover="hoverStars(this,${s})" onmouseleave="unhoverStars('${contentId}',${userRating})">★</span>
+      `).join("")}
+    </div>`;
+};
+
+window.hoverStars = (el, n) => {
+  const stars = el.parentElement.querySelectorAll("span");
+  stars.forEach((s,i) => s.style.color = i<n ? "#f59e0b" : "rgba(255,255,255,.2)");
+};
+
+window.unhoverStars = (contentId, userRating) => {
+  renderUserRatingStars(contentId, userRating);
+};
+
+window.submitUserRating = async (contentId, score) => {
+  if(!CU){ toast("⚠️ سجّل الدخول لتقييم المحتوى","w"); openModal("m-auth"); return; }
+  try{
+    const {db, doc, getDoc, updateDoc} = window._fb();
+    const ref = doc(db,"fc_content",contentId);
+    const snap = await getDoc(ref);
+    if(!snap.exists()) return;
+    const ratings = snap.data().userRatings||{};
+    ratings[CU.uid] = score;
+    const vals = Object.values(ratings);
+    const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+    await updateDoc(ref,{userRatings:ratings, rating:Math.round(avg*10)/10});
+    const rn = G("cm-rating-num");
+    if(rn) rn.textContent = Math.round(avg*10)/10;
+    toast(`⭐ قيّمت بـ ${score/2} نجوم`);
+    renderUserRatingStars(contentId, score);
+    // تحديث cache
+    if(window._contentCache?.[contentId]) window._contentCache[contentId].rating = Math.round(avg*10)/10;
+  } catch(e){ toast("❌ فشل التقييم","e"); }
+};
+
+// ══════════════════════════════════════════════════
+// 5. البحث بالصوت
+// ══════════════════════════════════════════════════
+window.startVoiceSearch = () => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){ toast("⚠️ المتصفح لا يدعم البحث الصوتي","w"); return; }
+  const r = new SR();
+  r.lang = "ar-SA";
+  r.interimResults = false;
+  r.maxAlternatives = 1;
+  const btn = G("voice-search-btn");
+  if(btn){ btn.textContent = "🔴"; btn.style.color = "#e50914"; }
+  r.start();
+  r.onresult = (e) => {
+    const text = e.results[0][0].transcript;
+    const inp = G("search-inp");
+    if(inp){ inp.value = text; window._currentFilters.search = text.toLowerCase(); applyFilters(); G("browse-sec")?.scrollIntoView({behavior:"smooth"}); }
+    toast(`🎤 بحثت عن: ${text}`);
+  };
+  r.onerror = () => toast("⚠️ لم يتم التعرف على الصوت","w");
+  r.onend = () => { if(btn){ btn.textContent = "🎤"; btn.style.color = ""; } };
+};
+
+// ══════════════════════════════════════════════════
+// 6. ضغط الصور تلقائياً قبل الرفع
+// ══════════════════════════════════════════════════
+window.compressImage = (file, maxWidth=800, quality=0.82) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const ratio = Math.min(maxWidth/img.width, maxWidth/img.height, 1);
+        canvas.width = img.width*ratio;
+        canvas.height = img.height*ratio;
+        canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);
+        canvas.toBlob(blob => resolve(blob||file), "image/jpeg", quality);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+// تطبيق الضغط في handlePosterUpload
+const _origPosterUpload = window.handlePosterUpload;
+window.handlePosterUpload = async (input) => {
+  const file = input.files[0];
+  if(!file) return;
+  if(file.size > 500*1024){
+    toast("🗜️ جاري ضغط الصورة...");
+    const compressed = await window.compressImage(file);
+    const dt = new DataTransfer();
+    dt.items.add(new File([compressed], file.name, {type:"image/jpeg"}));
+    input.files = dt.files;
+  }
+  _origPosterUpload(input);
+};
+
+// ══════════════════════════════════════════════════
+// 7. وضع Offline — عرض المحتوى المحفوظ
+// ══════════════════════════════════════════════════
+window.addEventListener("online",  () => toast("✅ عاد الاتصال بالإنترنت"));
+window.addEventListener("offline", () => {
+  toast("📵 أنت الآن في وضع عدم الاتصال — يعرض المحتوى المحفوظ","w");
+  // استخدام المحتوى المحفوظ في localStorage
+  const cached = localStorage.getItem("fc_content_cache");
+  if(cached && !window._allContent?.length){
+    try{
+      window._allContent = JSON.parse(cached);
+      applyFilters(); loadHero(); loadTrending(); loadLatest();
+    } catch(e){}
+  }
+});
+// حفظ المحتوى في localStorage بعد كل تحميل ناجح
+const _origLoadContent = window.loadContent;
+window.loadContent = async () => {
+  await _origLoadContent();
+  if(window._allContent?.length){
+    try{ localStorage.setItem("fc_content_cache", JSON.stringify(window._allContent.slice(0,50))); } catch(e){}
+  }
+};
+
+// ══════════════════════════════════════════════════
+// 8. تصدير البيانات CSV للأدمن
+// ══════════════════════════════════════════════════
+window.exportContentCSV = () => {
+  if(!isAdmin()) return;
+  const items = window._allContent||[];
+  if(!items.length){ toast("⚠️ لا يوجد محتوى للتصدير","w"); return; }
+  const headers = ["ID","العنوان","النوع","التصنيف","السنة","الجودة","المشاهدات","التقييم","البلد"];
+  const rows = items.map(c => [
+    c.id, c.title||"", c.type||"", c.genre||"",
+    c.year||"", c.quality||"", c.views||0, c.rating||"", c.country||""
+  ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(","));
+  const csv = "\uFEFF" + [headers.join(","), ...rows].join("\n");
+  const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `FilmCreator24_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  toast("✅ تم تصدير البيانات!");
+};
+
+// ══════════════════════════════════════════════════
+// 9. نسخ احتياطي — تصدير Firebase كـ JSON
+// ══════════════════════════════════════════════════
+window.exportBackupJSON = async () => {
+  if(!isAdmin()) return;
+  toast("⏳ جاري إنشاء النسخة الاحتياطية...");
+  try{
+    const {db, collection, getDocs} = window._fb();
+    const [contentSnap, epSnap, commentSnap] = await Promise.all([
+      getDocs(collection(db,"fc_content")),
+      getDocs(collection(db,"fc_episodes")),
+      getDocs(collection(db,"fc_comments"))
+    ]);
+    const backup = {
+      exportedAt: new Date().toISOString(),
+      content: contentSnap.docs.map(d=>({id:d.id,...d.data()})),
+      episodes: epSnap.docs.map(d=>({id:d.id,...d.data()})),
+      comments: commentSnap.docs.map(d=>({id:d.id,...d.data()}))
+    };
+    const json = JSON.stringify(backup, (k,v) => {
+      if(v?.seconds !== undefined) return new Date(v.seconds*1000).toISOString();
+      return v;
+    }, 2);
+    const blob = new Blob([json], {type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `FC24_backup_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    toast(`✅ نسخة احتياطية: ${backup.content.length} محتوى، ${backup.episodes.length} حلقة`);
+  } catch(e){ toast("❌ فشل إنشاء النسخة الاحتياطية","e"); }
+};
+
 window.showPage = (n) => {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   G('page-'+n)?.classList.add('active');
   window.scrollTo(0,0);
   if(n==="watchlist") loadMyWatchlist();
+  if(n==="profile") loadProfilePage();
+  if(n==="watched") loadWatchedPage();
   if(n==="home"){ loadContent(); }
 };
+
+// ─── الأكثر مشاهدة هذا الأسبوع ───
+window.loadWeeklyTrending = () => {
+  const wrap = G("weekly-trending-wrap");
+  if(!wrap) return;
+  const now = Date.now()/1000, weekAgo = now - 7*24*3600;
+  const items = [...(window._allContent||[])]
+    .map(c => { const isNew=(c.createdAt?.seconds||0)>weekAgo; return {...c,_ws:(c.weekViews||0)*2+(c.views||0)*0.1+(isNew?500:0)}; })
+    .sort((a,b)=>b._ws-a._ws).slice(0,10);
+  wrap.innerHTML = items.map((c,i)=>`
+    <div class="hcard" onclick="openContent('${c.id}')" style="position:relative;cursor:pointer;flex-shrink:0;width:110px">
+      <div style="position:absolute;top:.3rem;right:.3rem;background:var(--red);color:#fff;font-size:.68rem;font-weight:900;border-radius:6px;padding:.1rem .35rem;z-index:2">#${i+1}</div>
+      <img src="${sanitize(c.poster||"")}" style="width:110px;height:160px;object-fit:cover;border-radius:10px;display:block" loading="lazy" onerror="this.style.background='#222'">
+      <div style="font-size:.75rem;font-weight:700;margin-top:.4rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:110px">${sanitize(c.title||"")}</div>
+    </div>`).join("");
+};
+
+// ─── شاهدته ───
+window.loadWatchedPage = async () => {
+  const grid = G("watched-grid");
+  if(!grid) return;
+  if(!CU){ grid.innerHTML='<div class="empty-s">سجّل الدخول لرؤية ما شاهدته</div>'; return; }
+  grid.innerHTML='<div class="spin-sm">⏳</div>';
+  const ids = CUD?.watched||[];
+  if(!ids.length){ grid.innerHTML='<div class="empty-s">📭 لم تشاهد أي شيء بعد</div>'; return; }
+  try{
+    const {db,doc,getDoc}=window._fb();
+    const items = await Promise.all(ids.map(id=>getDoc(doc(db,"fc_content",id))));
+    const valid = items.filter(s=>s.exists()).map(s=>({id:s.id,...s.data()}));
+    grid.innerHTML = valid.map(c=>contentCard(c)).join("");
+  } catch(e){ grid.innerHTML='<div class="empty-s">❌ خطأ</div>'; }
+};
+
+window.toggleWatched = async (id, ev) => {
+  ev?.stopPropagation();
+  if(!CU){ toast("⚠️ سجّل الدخول أولاً","w"); openModal("m-auth"); return; }
+  const {db,doc,setDoc,arrayRemove,arrayUnion}=window._fb();
+  const ref=doc(db,"fc_users",CU.uid);
+  const isIn=CUD?.watched?.includes(id);
+  try{
+    if(isIn){
+      await setDoc(ref,{watched:arrayRemove(id)},{merge:true});
+      if(CUD) CUD.watched=(CUD.watched||[]).filter(x=>x!==id);
+      toast("🗑️ أُزيل من شاهدته");
+    } else {
+      await setDoc(ref,{watched:arrayUnion(id)},{merge:true});
+      if(CUD){if(!CUD.watched)CUD.watched=[];CUD.watched.push(id);}
+      toast("✅ أُضيف إلى شاهدته");
+    }
+    const btn=document.querySelector(`[data-watched-id="${id}"]`);
+    if(btn){ btn.textContent=CUD?.watched?.includes(id)?"👁️ شاهدته":"👁 شاهدته"; }
+  } catch(e){ toast("❌ خطأ","e"); }
+};
+
+// ─── صفحة ممثل ───
+window.openCastPage = (name) => {
+  closeModal("m-cast-filter");
+  G("cast-page-name").textContent = `🎭 ${name}`;
+  const items=(window._allContent||[]).filter(c=>(c.cast||[]).includes(name)||c.director===name);
+  const grid=G("cast-page-grid");
+  if(grid) grid.innerHTML=items.length?items.map(c=>contentCard(c)).join(""):'<div class="empty-s">📭 لا توجد أعمال</div>';
+  showPage("cast");
+};
+window.filterByCast = (name) => openCastPage(name);
+
+
 
 </script>
 
@@ -2493,6 +2939,7 @@ body.light-mode{
   <div class="nav-logo">Film<span>Creator</span>24</div>
   <div class="nav-search">
     <input type="text" id="search-inp" placeholder="ابحث..." onkeydown="if(event.key==='Enter') doSearch()" oninput="liveSearch(this.value)">
+  <button id="voice-search-btn" onclick="startVoiceSearch()" title="بحث صوتي" style="background:none;border:none;color:var(--mu);font-size:1rem;cursor:pointer;padding:0 .3rem;flex-shrink:0">🎤</button>
     <button onclick="doSearch()">🔍</button>
   </div>
   <div class="nav-btns">
@@ -2535,18 +2982,23 @@ body.light-mode{
     <button class="sbtn" onclick="closeSidebar();openModal('m-add-episode')" id="sb-ep-btn" style="display:none;background:rgba(59,130,246,.8);margin-bottom:.5rem">📺 إضافة حلقة</button>
     <button class="sbtn" onclick="closeSidebar();showAdminStats()" id="sb-stats-btn" style="display:none;background:rgba(245,166,35,.7);margin-bottom:.5rem">📊 الإحصائيات</button>
     <button class="sbtn" onclick="closeSidebar();openModal('m-admin-featured')" id="sb-featured-btn" style="display:none;background:rgba(16,185,129,.7);margin-bottom:.5rem">🏆 ترتيب المميز</button>
+    <button class="sbtn" onclick="closeSidebar();openUserManager()" id="sb-users-btn" style="display:none;background:rgba(139,92,246,.7);margin-bottom:.5rem">👥 إدارة المستخدمين</button>
+    <button class="sbtn" onclick="closeSidebar();exportContentCSV()" id="sb-export-btn" style="display:none;background:rgba(16,185,129,.5);margin-bottom:.5rem">📥 تصدير CSV</button>
+    <button class="sbtn" onclick="closeSidebar();exportBackupJSON()" id="sb-backup-btn" style="display:none;background:rgba(245,158,11,.5);margin-bottom:.5rem">💾 نسخ احتياطي</button>
   </div>
 
   <div class="sb-nav">
     <div class="sb-section">التنقل</div>
     <button class="sb-link" onclick="closeSidebar();showPage('home')"><span class="sb-icon">🏠</span> الرئيسية</button>
+    <button class="sb-link" onclick="closeSidebar();showPage('profile')"><span class="sb-icon">👤</span> ملفي الشخصي</button>
     <button class="sb-link" onclick="closeSidebar();showPage('watchlist')"><span class="sb-icon">🔖</span> قائمتي</button>
+    <button class="sb-link" onclick="closeSidebar();showPage('watched')"><span class="sb-icon">👁️</span> شاهدته</button>
     <hr class="sb-divider">
     <div class="sb-section">التصنيف</div>
     <button class="sb-link" onclick="closeSidebar();showPage('home');setFilter('type','أفلام',null)"><span class="sb-icon">🎬</span> أفلام</button>
     <button class="sb-link" onclick="closeSidebar();showPage('home');setFilter('type','مسلسل',null)"><span class="sb-icon">📺</span> مسلسلات</button>
     <button class="sb-link" onclick="closeSidebar();showPage('home');setFilter('type','أنمي',null)"><span class="sb-icon">⚔️</span> أنمي</button>
-    <button class="sb-link" onclick="closeSidebar();openModal('m-cast-filter')"><span class="sb-icon">🎭</span> تصفح بالممثلين</button>
+    <button class="sb-link" onclick="closeSidebar();openModal('m-cast-filter');loadCastList()"><span class="sb-icon">🎭</span> تصفح بالممثلين</button>
   </div>
 
   <div style="padding:1rem;margin-top:auto;display:flex;flex-direction:column;gap:.5rem">
@@ -2621,6 +3073,16 @@ body.light-mode{
       <div class="section-title">🆕 أحدث الإضافات</div>
     </div>
     <div class="hscroll" id="latest-wrap">
+      <div class="empty-s">⏳ جاري التحميل...</div>
+    </div>
+  </div>
+
+  <!-- WEEKLY TRENDING -->
+  <div class="section">
+    <div class="section-head">
+      <div class="section-title">📈 الأكثر مشاهدة هذا الأسبوع</div>
+    </div>
+    <div class="hscroll" id="weekly-trending-wrap">
       <div class="empty-s">⏳ جاري التحميل...</div>
     </div>
   </div>
@@ -2727,6 +3189,41 @@ body.light-mode{
   </div>
 </div>
 
+<!-- صفحة الملف الشخصي -->
+<div class="page" id="page-profile">
+  <div class="page-header">
+    <button onclick="showPage('home')" style="background:none;border:none;color:var(--mu);font-family:'Tajawal';cursor:pointer;margin-bottom:.5rem">← رجوع</button>
+    <h1>👤 ملفي الشخصي</h1>
+  </div>
+  <div id="profile-body" style="padding-bottom:2rem"></div>
+</div>
+
+<!-- صفحة شاهدته -->
+<div class="page" id="page-watched">
+  <div class="page-header">
+    <button onclick="showPage('home')" style="background:none;border:none;color:var(--mu);font-family:'Tajawal';cursor:pointer;margin-bottom:.5rem">← رجوع</button>
+    <h1>👁️ شاهدته</h1>
+  </div>
+  <div class="browse-section">
+    <div class="works-grid" id="watched-grid">
+      <div class="loading-state" style="grid-column:1/-1">⏳</div>
+    </div>
+  </div>
+</div>
+
+<!-- صفحة ممثل -->
+<div class="page" id="page-cast">
+  <div class="page-header">
+    <button onclick="showPage('home')" style="background:none;border:none;color:var(--mu);font-family:'Tajawal';cursor:pointer;margin-bottom:.5rem">← رجوع</button>
+    <h1 id="cast-page-name">🎭 أعمال الممثل</h1>
+  </div>
+  <div class="browse-section">
+    <div class="works-grid" id="cast-page-grid">
+      <div class="loading-state" style="grid-column:1/-1">⏳</div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ MODALS ═══ -->
 
 <!-- AUTH MODAL -->
@@ -2793,6 +3290,8 @@ body.light-mode{
         </div>
         <span id="user-rating-label" style="font-size:.75rem;color:var(--gold)"></span>
       </div>
+      <!-- تقييم تفاعلي جديد -->
+      <div id="user-rating-wrap" style="margin-bottom:.5rem"></div>
 
       <!-- META -->
       <div class="cm-meta-row" id="cm-meta"></div>
@@ -2854,6 +3353,14 @@ body.light-mode{
       <span id="player-title" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
       <button id="player-next-btn" onclick="" style="display:none;background:rgba(229,9,20,.85);border:none;color:#fff;font-family:'Tajawal';font-size:.8rem;font-weight:800;padding:.32rem .8rem;border-radius:8px;cursor:pointer;white-space:nowrap;margin-left:.5rem">▶▶ التالية</button>
       <button class="mclose" onclick="closePlayer()">✕</button>
+    </div>
+    <!-- شريط الاستئناف -->
+    <div id="resume-bar" style="display:none;align-items:center;justify-content:space-between;padding:.5rem .8rem;background:rgba(229,9,20,.12);border-bottom:1px solid rgba(229,9,20,.25);gap:.5rem">
+      <span style="font-size:.8rem;color:rgba(255,255,255,.85)">▶️ استئناف من <span id="resume-time" style="color:var(--red);font-weight:700"></span></span>
+      <div style="display:flex;gap:.5rem">
+        <button onclick="resumeFromSaved()" style="background:var(--red);border:none;color:#fff;font-family:'Tajawal';font-size:.75rem;font-weight:700;padding:.28rem .7rem;border-radius:6px;cursor:pointer">استئناف</button>
+        <button onclick="dismissResume()" style="background:rgba(255,255,255,.1);border:none;color:var(--mu);font-family:'Tajawal';font-size:.75rem;padding:.28rem .55rem;border-radius:6px;cursor:pointer">من البداية</button>
+      </div>
     </div>
     <iframe id="player-frame" src="" allowfullscreen allow="autoplay; encrypted-media" referrerpolicy="no-referrer"></iframe>
   </div>
@@ -3066,6 +3573,9 @@ function openSidebar(){
     const eb=G('sb-ep-btn'); if(eb) eb.style.display='block';
     const stb=G('sb-stats-btn'); if(stb) stb.style.display='block';
     const fb=G('sb-featured-btn'); if(fb) fb.style.display='block';
+    const ub=G('sb-users-btn'); if(ub) ub.style.display='block';
+    const xb=G('sb-export-btn'); if(xb) xb.style.display='block';
+    const bb=G('sb-backup-btn'); if(bb) bb.style.display='block';
   }
 }
 function closeSidebar(){
