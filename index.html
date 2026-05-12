@@ -737,8 +737,19 @@ function renderContentActions(c){
   // روابط مشاهدة إضافية
   if(c.watchLinks && c.watchLinks.length){
     c.watchLinks.forEach(lnk => {
-      const safeUrl = encodeURI(String(lnk.url||"").startsWith("http")?lnk.url:"");
-      if(safeUrl) html += `<a href="${safeUrl}" target="_blank" rel="noopener" class="ca-btn ca-watch" style="grid-column:1/-1">▶️ ${sanitize(lnk.label||"مشاهدة")}</a>`;
+      const url = String(lnk.url||"").trim();
+      if(!url.startsWith("http")) return;
+      const label = sanitize(lnk.label||"مشاهدة");
+      // روابط Embed تُشغَّل داخل المشغل — روابط خارجية تُفتح في تاب جديد
+      const isEmbed = url.includes("player.") || url.includes("/embed") || url.includes("/e/") ||
+        url.includes("dood") || url.includes("streamtape") || url.includes("vidguard") ||
+        url.includes("filemoon") || url.includes("mediadelivery") || url.includes("bunny") ||
+        url.includes("vidsrc") || url.includes("iframe");
+      if(isEmbed){
+        html += `<button class="ca-btn ca-watch" onclick="openPlayer('${url.replace(/'/g,"\\'")}','${sanitize(c.title||"")}')">▶️ ${label}</button>`;
+      } else {
+        html += `<a href="${encodeURI(url)}" target="_blank" rel="noopener" class="ca-btn ca-watch">▶️ ${label}</a>`;
+      }
     });
   }
 
@@ -2890,6 +2901,45 @@ textarea.fc{ resize:none; }
 footer{ background:#050508; border-top:1px solid var(--br); padding:1.5rem 1rem; text-align:center; color:rgba(255,255,255,.2); font-size:.8rem; }
 footer a{ color:var(--gold); text-decoration:none; font-weight:700; }
 
+/* ─── ARCHIVE ─── */
+.arch-cat{
+  font-family:'Tajawal'; font-size:.78rem; font-weight:700;
+  padding:.35rem .85rem; border-radius:20px; border:1.5px solid var(--br);
+  background:rgba(255,255,255,.04); color:var(--mu); cursor:pointer;
+  white-space:nowrap; transition:all .2s; flex-shrink:0;
+}
+.arch-cat:hover{ border-color:#10b981; color:#10b981; }
+.arch-cat.active{ background:#10b981; border-color:#10b981; color:#fff; }
+.arch-card{ cursor:pointer; transition:transform .2s; }
+.arch-card:hover{ transform:translateY(-4px); }
+.arch-thumb{
+  position:relative; aspect-ratio:2/3; border-radius:10px;
+  overflow:hidden; background:var(--s3);
+  display:flex; align-items:center; justify-content:center;
+}
+.arch-thumb img{ width:100%; height:100%; object-fit:cover; }
+.arch-thumb-def{ font-size:2.5rem; }
+.arch-overlay{
+  position:absolute; inset:0; background:rgba(0,0,0,.5);
+  display:flex; align-items:center; justify-content:center;
+  opacity:0; transition:opacity .2s;
+}
+.arch-card:hover .arch-overlay{ opacity:1; }
+.arch-play{
+  width:44px; height:44px; border-radius:50%;
+  background:#10b981; border:none; color:#fff;
+  font-size:1rem; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+}
+.arch-badge{
+  position:absolute; top:.4rem; right:.4rem;
+  background:rgba(16,185,129,.85); color:#fff;
+  font-size:.6rem; font-weight:900; padding:.12rem .4rem; border-radius:4px;
+}
+.arch-info{ padding:.5rem .2rem 0; }
+.arch-title{ font-size:.82rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.arch-year{ font-size:.7rem; color:var(--mu); margin-top:.2rem; }
+
 
 
 /* ─── LIGHT MODE ─── */
@@ -2999,6 +3049,7 @@ body.light-mode{
     <button class="sb-link" onclick="closeSidebar();showPage('home');setFilter('type','مسلسل',null)"><span class="sb-icon">📺</span> مسلسلات</button>
     <button class="sb-link" onclick="closeSidebar();showPage('home');setFilter('type','أنمي',null)"><span class="sb-icon">⚔️</span> أنمي</button>
     <button class="sb-link" onclick="closeSidebar();openModal('m-cast-filter');loadCastList()"><span class="sb-icon">🎭</span> تصفح بالممثلين</button>
+    <button class="sb-link" onclick="closeSidebar();showPage('archive')" style="color:#10b981"><span class="sb-icon">🌐</span> أفلام مجانية <span style="font-size:.65rem;background:rgba(16,185,129,.2);border:1px solid rgba(16,185,129,.4);color:#10b981;padding:.1rem .4rem;border-radius:20px;margin-right:.3rem">مجاني</span></button>
   </div>
 
   <div style="padding:1rem;margin-top:auto;display:flex;flex-direction:column;gap:.5rem">
@@ -3174,6 +3225,85 @@ body.light-mode{
     </div>
     <div>© <span id="footer-year"></span> جميع الحقوق محفوظة</div>
   </footer>
+</div>
+
+<!-- ARCHIVE PAGE -->
+<div class="page" id="page-archive">
+  <div class="page-header" style="padding:1rem 1rem .5rem;display:flex;align-items:center;gap:.7rem">
+    <button onclick="showPage('home')" style="background:rgba(255,255,255,.06);border:1px solid var(--br);color:var(--mu);font-family:'Tajawal';cursor:pointer;border-radius:8px;padding:.4rem .8rem;font-size:.85rem">← رجوع</button>
+    <div>
+      <h1 style="font-size:1.2rem;font-weight:900;display:flex;align-items:center;gap:.5rem">🌐 أفلام مجانية <span style="font-size:.65rem;background:rgba(16,185,129,.2);border:1px solid rgba(16,185,129,.4);color:#10b981;padding:.15rem .5rem;border-radius:20px">Public Domain</span></h1>
+      <div style="font-size:.75rem;color:var(--mu);margin-top:.2rem">أفلام كلاسيكية مجانية 100% من Internet Archive</div>
+    </div>
+  </div>
+
+  <!-- بحث وفلاتر -->
+  <div style="padding:.5rem 1rem 0">
+    <div class="search-bar" style="margin-bottom:.7rem">
+      <span>🔍</span>
+      <input type="text" id="archive-search-inp" placeholder="ابحث في الأفلام المجانية..." oninput="archiveSearch(this.value)">
+      <button onclick="archiveSearch(document.getElementById('archive-search-inp').value)">بحث</button>
+    </div>
+    <!-- صف التصنيفات الرئيسية -->
+    <div style="display:flex;gap:.4rem;overflow-x:auto;padding-bottom:.4rem;scrollbar-width:none">
+      <button class="arch-cat active" onclick="loadArchive('feature_films','الكل','',this)">🎬 كل الأفلام</button>
+      <button class="arch-cat" onclick="loadArchive('feature_films','comedy','',this)">😂 كوميدي</button>
+      <button class="arch-cat" onclick="loadArchive('feature_films','drama','',this)">🎭 دراما</button>
+      <button class="arch-cat" onclick="loadArchive('feature_films','western','',this)">🤠 وسترن</button>
+      <button class="arch-cat" onclick="loadArchive('feature_films','horror','',this)">👻 رعب</button>
+      <button class="arch-cat" onclick="loadArchive('feature_films','romance','',this)">💕 رومانسي</button>
+      <button class="arch-cat" onclick="loadArchive('feature_films','action','',this)">💥 أكشن</button>
+      <button class="arch-cat" onclick="loadArchive('feature_films','sci-fi','',this)">🚀 خيال علمي</button>
+      <button class="arch-cat" onclick="loadArchive('feature_films','mystery','',this)">🔍 غموض</button>
+      <button class="arch-cat" onclick="loadArchive('short_films','الكل','',this)">📽️ أفلام قصيرة</button>
+    </div>
+    <!-- صف التصنيفات الثانية -->
+    <div style="display:flex;gap:.4rem;overflow-x:auto;padding-bottom:.4rem;margin-top:.4rem;scrollbar-width:none">
+      <button class="arch-cat" onclick="loadArchive('tv','الكل','',this)">📺 مسلسلات قديمة</button>
+      <button class="arch-cat" onclick="loadArchive('animation','الكل','',this)">🃏 كارتون</button>
+      <button class="arch-cat" onclick="loadArchive('animation','popeye','',this)">⚓ Popeye</button>
+      <button class="arch-cat" onclick="loadArchive('animation','looney tunes','',this)">🐰 Looney Tunes</button>
+      <button class="arch-cat" onclick="loadArchive('animation','betty boop','',this)">💃 Betty Boop</button>
+      <button class="arch-cat" onclick="loadArchive('animation','felix the cat','',this)">🐱 Felix the Cat</button>
+      <button class="arch-cat" onclick="loadArchive('anime','الكل','',this)">⚔️ أنمي قديم</button>
+    </div>
+    <!-- صف الوثائقيات والمتنوع -->
+    <div style="display:flex;gap:.4rem;overflow-x:auto;padding-bottom:.4rem;margin-top:.4rem;scrollbar-width:none">
+      <button class="arch-cat" onclick="loadArchive('documentary_films','الكل','',this)">🎥 وثائقيات</button>
+      <button class="arch-cat" onclick="loadArchive('documentary_films','nature','',this)">🌿 طبيعة</button>
+      <button class="arch-cat" onclick="loadArchive('documentary_films','history','',this)">📜 تاريخ</button>
+      <button class="arch-cat" onclick="loadArchive('documentary_films','science','',this)">🔬 علوم</button>
+      <button class="arch-cat" onclick="loadArchive('documentary_films','war','',this)">⚔️ حروب</button>
+      <button class="arch-cat" onclick="loadArchive('documentary_films','space','',this)">🌌 فضاء</button>
+      <button class="arch-cat" onclick="loadArchive('silent_films','الكل','',this)">🎞️ أفلام صامتة</button>
+      <button class="arch-cat" onclick="loadArchive('newsreels','الكل','',this)">📰 نشرات تاريخية</button>
+    </div>
+  </div>
+
+  <!-- شبكة الأفلام -->
+  <div style="padding:1rem">
+    <div id="archive-grid" class="works-grid">
+      <div class="loading-state" style="grid-column:1/-1"><span class="spin-icon">⏳</span><p>جاري تحميل الأفلام...</p></div>
+    </div>
+    <div style="text-align:center;margin-top:1.2rem" id="archive-load-more-wrap" style="display:none">
+      <button class="see-all" style="padding:.6rem 2rem;font-size:.88rem" onclick="archiveLoadMore()">⬇️ تحميل المزيد</button>
+    </div>
+  </div>
+</div>
+
+<!-- ARCHIVE PLAYER MODAL -->
+<div class="mo" id="m-archive-player">
+  <div class="md full" style="max-width:900px;background:#000;border:none;border-radius:12px;padding:0;overflow:hidden">
+    <div class="player-head" style="display:flex;align-items:center;justify-content:space-between;padding:.7rem 1rem;background:rgba(0,0,0,.95)">
+      <span id="archive-player-title" style="font-size:.9rem;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+      <button onclick="closeArchivePlayer()" style="background:rgba(255,255,255,.1);border:none;color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:1rem;flex-shrink:0">✕</button>
+    </div>
+    <iframe id="archive-player-frame" style="width:100%;aspect-ratio:16/9;border:none;display:block" allowfullscreen></iframe>
+    <div style="padding:.7rem 1rem;background:#0a0a0a;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem">
+      <div id="archive-player-meta" style="font-size:.78rem;color:rgba(255,255,255,.4)"></div>
+      <a id="archive-player-link" href="#" target="_blank" rel="noopener" style="font-size:.78rem;color:#10b981;text-decoration:none;font-weight:700">🔗 فتح في Internet Archive</a>
+    </div>
+  </div>
 </div>
 
 <!-- WATCHLIST PAGE -->
@@ -3445,8 +3575,8 @@ body.light-mode{
         </div>
         <div class="fg"><label>الوصف</label><textarea class="fc" id="ac-desc" rows="4" placeholder="ملخص القصة..."></textarea></div>
         <div class="fg">
-          <label>▶️ رابط Embed للمشاهدة المباشرة (DoodStream...)</label>
-          <input class="fc" id="ac-embed" type="url" placeholder="https://dood.to/e/...">
+          <label>▶️ رابط Embed للمشاهدة المباشرة (DoodStream, BunnyCDN, Mediadelivery...)</label>
+          <input class="fc" id="ac-embed" type="url" placeholder="https://player.mediadelivery.net/play/... أو https://dood.to/e/...">
         </div>
         <hr style="border-color:var(--br);margin:.8rem 0">
         <div class="fg">
@@ -3734,5 +3864,246 @@ window.loadMoreContent = async () => {
     const fy = document.getElementById('footer-year');
     if(fy) fy.textContent = new Date().getFullYear();
   </script>
+
+<script>
+// ══════════════════════════════════════════════
+// INTERNET ARCHIVE — محتوى مجاني شامل
+// ══════════════════════════════════════════════
+
+let _archivePage = 1;
+let _archiveQuery = '';
+let _archiveCollection = 'feature_films';
+let _archiveSubject = '';
+let _archiveMediatype = 'movies';
+let _archiveLoading = false;
+
+// خريطة التصنيفات — collection / subject / mediatype
+const ARCH_CATS = {
+  // أفلام
+  'feature_films|الكل|':       { col:'feature_films', sub:'',           mt:'movies', label:'أفلام' },
+  'feature_films|comedy|':     { col:'feature_films', sub:'comedy',      mt:'movies', label:'كوميدي' },
+  'feature_films|drama|':      { col:'feature_films', sub:'drama',       mt:'movies', label:'دراما' },
+  'feature_films|western|':    { col:'feature_films', sub:'western',     mt:'movies', label:'وسترن' },
+  'feature_films|horror|':     { col:'feature_films', sub:'horror',      mt:'movies', label:'رعب' },
+  'feature_films|romance|':    { col:'feature_films', sub:'romance',     mt:'movies', label:'رومانسي' },
+  'feature_films|action|':     { col:'feature_films', sub:'action',      mt:'movies', label:'أكشن' },
+  'feature_films|sci-fi|':     { col:'feature_films', sub:'sci-fi',      mt:'movies', label:'خيال علمي' },
+  'feature_films|mystery|':    { col:'feature_films', sub:'mystery',     mt:'movies', label:'غموض' },
+  'short_films|الكل|':         { col:'short_films',   sub:'',            mt:'movies', label:'أفلام قصيرة' },
+  // مسلسلات وكارتون وأنمي
+  'tv|الكل|':                  { col:'tvarchive',     sub:'',            mt:'movies', label:'مسلسلات' },
+  'animation|الكل|':           { col:'classic_cartoons', sub:'',         mt:'movies', label:'كارتون' },
+  'animation|popeye|':         { col:'classic_cartoons', sub:'popeye',   mt:'movies', label:'Popeye' },
+  'animation|looney tunes|':   { col:'classic_cartoons', sub:'looney tunes', mt:'movies', label:'Looney Tunes' },
+  'animation|betty boop|':     { col:'classic_cartoons', sub:'betty boop',   mt:'movies', label:'Betty Boop' },
+  'animation|felix the cat|':  { col:'classic_cartoons', sub:'felix the cat',mt:'movies', label:'Felix' },
+  'anime|الكل|':               { col:'anime',         sub:'',            mt:'movies', label:'أنمي' },
+  // وثائقيات
+  'documentary_films|الكل|':  { col:'documentary_films', sub:'',         mt:'movies', label:'وثائقيات' },
+  'documentary_films|nature|':{ col:'documentary_films', sub:'nature',   mt:'movies', label:'طبيعة' },
+  'documentary_films|history|':{ col:'documentary_films',sub:'history',  mt:'movies', label:'تاريخ' },
+  'documentary_films|science|':{ col:'documentary_films',sub:'science',  mt:'movies', label:'علوم' },
+  'documentary_films|war|':   { col:'documentary_films', sub:'war',      mt:'movies', label:'حروب' },
+  'documentary_films|space|': { col:'documentary_films', sub:'space',    mt:'movies', label:'فضاء' },
+  // متنوع
+  'silent_films|الكل|':       { col:'silent_films',  sub:'',            mt:'movies', label:'أفلام صامتة' },
+  'newsreels|الكل|':          { col:'newsreels',     sub:'',            mt:'movies', label:'نشرات تاريخية' },
+};
+
+// ربط showPage بصفحة archive
+const _origShowPage = window.showPage;
+window.showPage = function(n){
+  if(_origShowPage) _origShowPage(n);
+  if(n === 'archive'){
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    const pg = document.getElementById('page-archive');
+    if(pg) pg.classList.add('active');
+    window.scrollTo(0,0);
+    if(!window._archiveLoaded){
+      window._archiveLoaded = true;
+      loadArchive('feature_films','الكل','', document.querySelector('.arch-cat'));
+    }
+  }
+};
+
+// بناء URL البحث — يتعامل مع كل أنواع المجموعات
+function buildArchiveUrl(collection, subject, query, page){
+  const rows = 24;
+  const start = (page - 1) * rows;
+  const cat = ARCH_CATS[`${collection}|${subject}|`] || { col: collection, sub: subject, mt:'movies' };
+
+  let q = `mediatype:${cat.mt}`;
+  // بعض المجموعات تحتاج collection مختلف
+  if(cat.col) q += ` AND collection:${cat.col}`;
+  if(cat.sub && cat.sub !== 'الكل') q += ` AND subject:"${cat.sub}"`;
+  if(query) q += ` AND title:(${query})`;
+  q += ' AND -title:"test" AND -title:"upload" AND -title:"sample"';
+
+  return `https://archive.org/advancedsearch.php?q=${encodeURIComponent(q)}&fl[]=identifier,title,year,subject,mediatype&sort[]=downloads+desc&rows=${rows}&start=${start}&output=json`;
+}
+
+// تحميل التصنيف
+window.loadArchive = async function(collection, subject, extra, btn){
+  if(_archiveLoading) return;
+  _archiveLoading = true;
+  _archivePage = 1;
+  _archiveCollection = collection;
+  _archiveSubject = subject;
+  _archiveQuery = '';
+  const inp = document.getElementById('archive-search-inp');
+  if(inp) inp.value = '';
+
+  document.querySelectorAll('.arch-cat').forEach(b => b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+
+  const grid = document.getElementById('archive-grid');
+  const cat = ARCH_CATS[`${collection}|${subject}|`];
+  const label = cat ? cat.label : 'المحتوى';
+  if(grid) grid.innerHTML = `<div class="loading-state" style="grid-column:1/-1"><span class="spin-icon">⏳</span><p>جاري تحميل ${label}...</p></div>`;
+
+  try{
+    const items = await fetchArchiveItems(collection, subject, '', 1);
+    renderArchiveGrid(items, false, label);
+  } catch(e){
+    if(grid) grid.innerHTML = '<div class="empty-s">❌ فشل التحميل — تحقق من الاتصال</div>';
+  }
+  _archiveLoading = false;
+};
+
+// بحث
+window.archiveSearch = async function(q){
+  if(!q.trim()){ loadArchive(_archiveCollection, _archiveSubject, '', null); return; }
+  if(_archiveLoading) return;
+  _archiveLoading = true;
+  _archivePage = 1;
+  _archiveQuery = q.trim();
+
+  const grid = document.getElementById('archive-grid');
+  if(grid) grid.innerHTML = `<div class="loading-state" style="grid-column:1/-1"><span class="spin-icon">⏳</span><p>جاري البحث عن "${q}"...</p></div>`;
+  document.querySelectorAll('.arch-cat').forEach(b => b.classList.remove('active'));
+
+  try{
+    const items = await fetchArchiveItems(_archiveCollection, _archiveSubject, _archiveQuery, 1);
+    renderArchiveGrid(items, false, 'نتائج البحث');
+  } catch(e){
+    if(grid) grid.innerHTML = '<div class="empty-s">❌ فشل البحث</div>';
+  }
+  _archiveLoading = false;
+};
+
+// تحميل المزيد
+window.archiveLoadMore = async function(){
+  if(_archiveLoading) return;
+  _archiveLoading = true;
+  _archivePage++;
+  try{
+    const items = await fetchArchiveItems(_archiveCollection, _archiveSubject, _archiveQuery, _archivePage);
+    renderArchiveGrid(items, true, '');
+  } catch(e){
+    if(window.toast) toast('❌ فشل تحميل المزيد','e');
+  }
+  _archiveLoading = false;
+};
+
+// جلب البيانات
+async function fetchArchiveItems(collection, subject, query, page){
+  const url = buildArchiveUrl(collection, subject, query, page);
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('fetch error');
+  const data = await res.json();
+  return data.response?.docs || [];
+}
+
+// أيقونات حسب التصنيف
+function getArchiveIcon(collection){
+  const icons = {
+    'feature_films':'🎬', 'short_films':'📽️', 'tvarchive':'📺',
+    'classic_cartoons':'🃏', 'anime':'⚔️',
+    'documentary_films':'🎥', 'silent_films':'🎞️', 'newsreels':'📰'
+  };
+  return icons[collection] || '🎬';
+}
+
+// رسم الشبكة
+function renderArchiveGrid(items, append, label){
+  const grid = document.getElementById('archive-grid');
+  const moreWrap = document.getElementById('archive-load-more-wrap');
+  if(!grid) return;
+
+  if(!items.length && !append){
+    grid.innerHTML = `<div class="empty-s" style="grid-column:1/-1">📭 لا توجد نتائج في "${label || 'هذا التصنيف'}"<br><span style="font-size:.78rem;color:var(--mu)">جرّب تصنيفاً آخر أو ابحث بكلمة مختلفة</span></div>`;
+    if(moreWrap) moreWrap.style.display = 'none';
+    return;
+  }
+
+  const icon = getArchiveIcon(_archiveCollection);
+  const cat = ARCH_CATS[`${_archiveCollection}|${_archiveSubject}|`];
+  const badgeLabel = cat ? cat.label : 'مجاني';
+
+  const html = items.map(item => {
+    const id = item.identifier || '';
+    const title = (item.title || 'بدون عنوان').substring(0, 50);
+    const year = item.year || '';
+    const thumb = id ? `https://archive.org/services/img/${id}` : '';
+    const safeid = id.replace(/'/g,"\\'" ).replace(/"/g,'&quot;');
+    const safetitle = title.replace(/'/g,"\\'").replace(/"/g,'&quot;');
+    return `
+      <div class="arch-card" onclick="openArchiveFilm('${safeid}','${safetitle}','${year}')">
+        <div class="arch-thumb">
+          ${thumb
+            ? `<img loading="lazy" src="${thumb}" alt="${safetitle}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+            : ''}
+          <div class="arch-thumb-def" style="${thumb?'display:none':'display:flex'}">${icon}</div>
+          <div class="arch-badge" style="background:rgba(16,185,129,.9)">${badgeLabel}</div>
+          <div class="arch-overlay"><button class="arch-play">▶</button></div>
+        </div>
+        <div class="arch-info">
+          <div class="arch-title">${title}</div>
+          <div class="arch-year">${year ? '📅 ' + year : icon + ' كلاسيكي'}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  if(append){
+    grid.insertAdjacentHTML('beforeend', html);
+  } else {
+    grid.innerHTML = html;
+  }
+
+  if(moreWrap) moreWrap.style.display = items.length >= 24 ? 'block' : 'none';
+}
+
+// فتح فيلم من الأرشيف
+window.openArchiveFilm = function(id, title, year){
+  if(!id) return;
+  const embedUrl = `https://archive.org/embed/${id}`;
+  const archiveUrl = `https://archive.org/details/${id}`;
+
+  const frame = document.getElementById('archive-player-frame');
+  const titleEl = document.getElementById('archive-player-title');
+  const metaEl = document.getElementById('archive-player-meta');
+  const linkEl = document.getElementById('archive-player-link');
+
+  if(frame) frame.src = embedUrl;
+  if(titleEl) titleEl.textContent = title || 'فيلم';
+  if(metaEl) metaEl.textContent = year ? `📅 ${year} — Internet Archive` : 'Internet Archive';
+  if(linkEl){ linkEl.href = archiveUrl; }
+
+  const modal = document.getElementById('m-archive-player');
+  if(modal){ modal.style.display = 'flex'; modal.classList.add('open'); }
+};
+
+window.closeArchivePlayer = function(){
+  const frame = document.getElementById('archive-player-frame');
+  if(frame) frame.src = '';
+  const modal = document.getElementById('m-archive-player');
+  if(modal){ modal.style.display = 'none'; modal.classList.remove('open'); }
+};
+
+// إغلاق بالنقر خارج الإطار
+document.getElementById('m-archive-player')?.addEventListener('click', function(e){
+  if(e.target === this) window.closeArchivePlayer();
+});
+</script>
 </body>
 </html>
