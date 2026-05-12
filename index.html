@@ -2298,6 +2298,14 @@ window.showPage = (n) => {
   if(n==="profile") loadProfilePage();
   if(n==="watched") loadWatchedPage();
   if(n==="home"){ loadContent(); }
+  if(n==="archive"){
+    if(!window._archiveLoaded){
+      window._archiveLoaded = true;
+      setTimeout(()=>{
+        if(window.loadArchive) loadArchive('feature_films','الكل','', document.querySelector('.arch-cat'));
+      }, 100);
+    }
+  }
 };
 
 // ─── الأكثر مشاهدة هذا الأسبوع ───
@@ -2913,32 +2921,51 @@ footer a{ color:var(--gold); text-decoration:none; font-weight:700; }
 .arch-card{ cursor:pointer; transition:transform .2s; }
 .arch-card:hover{ transform:translateY(-4px); }
 .arch-thumb{
-  position:relative; aspect-ratio:2/3; border-radius:10px;
-  overflow:hidden; background:var(--s3);
+  position:relative; width:100%; aspect-ratio:2/3;
+  border-radius:10px; overflow:hidden; background:var(--s3);
   display:flex; align-items:center; justify-content:center;
 }
-.arch-thumb img{ width:100%; height:100%; object-fit:cover; }
-.arch-thumb-def{ font-size:2.5rem; }
+.arch-thumb img{
+  position:absolute; inset:0; width:100%; height:100%;
+  object-fit:cover; object-position:center top; display:block;
+}
+.arch-thumb-def{
+  display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:.4rem; width:100%; height:100%;
+  background:linear-gradient(135deg,var(--s2),var(--s3));
+  font-size:2rem; padding:.5rem;
+}
+.arch-thumb-def span{
+  font-size:.7rem; font-weight:700; color:var(--mu);
+  text-align:center; line-height:1.4; padding:0 .3rem;
+  display:-webkit-box; -webkit-line-clamp:3;
+  -webkit-box-orient:vertical; overflow:hidden;
+}
 .arch-overlay{
-  position:absolute; inset:0; background:rgba(0,0,0,.5);
+  position:absolute; inset:0; background:rgba(0,0,0,.55);
   display:flex; align-items:center; justify-content:center;
-  opacity:0; transition:opacity .2s;
+  opacity:0; transition:opacity .2s; z-index:2;
 }
 .arch-card:hover .arch-overlay{ opacity:1; }
 .arch-play{
-  width:44px; height:44px; border-radius:50%;
+  width:46px; height:46px; border-radius:50%;
   background:#10b981; border:none; color:#fff;
-  font-size:1rem; cursor:pointer;
+  font-size:1.1rem; cursor:pointer;
   display:flex; align-items:center; justify-content:center;
+  box-shadow:0 0 20px rgba(16,185,129,.5);
 }
 .arch-badge{
-  position:absolute; top:.4rem; right:.4rem;
-  background:rgba(16,185,129,.85); color:#fff;
-  font-size:.6rem; font-weight:900; padding:.12rem .4rem; border-radius:4px;
+  position:absolute; bottom:.4rem; right:.4rem;
+  background:rgba(16,185,129,.9); color:#fff;
+  font-size:.58rem; font-weight:900;
+  padding:.12rem .42rem; border-radius:4px; z-index:1;
 }
-.arch-info{ padding:.5rem .2rem 0; }
-.arch-title{ font-size:.82rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.arch-year{ font-size:.7rem; color:var(--mu); margin-top:.2rem; }
+.arch-info{ padding:.45rem .15rem 0; }
+.arch-title{
+  font-size:.8rem; font-weight:700; line-height:1.3;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.arch-year{ font-size:.68rem; color:var(--mu); margin-top:.18rem; }
 
 
 
@@ -3910,21 +3937,7 @@ const ARCH_CATS = {
   'newsreels|الكل|':          { col:'newsreels',     sub:'',            mt:'movies', label:'نشرات تاريخية' },
 };
 
-// ربط showPage بصفحة archive
-const _origShowPage = window.showPage;
-window.showPage = function(n){
-  if(_origShowPage) _origShowPage(n);
-  if(n === 'archive'){
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    const pg = document.getElementById('page-archive');
-    if(pg) pg.classList.add('active');
-    window.scrollTo(0,0);
-    if(!window._archiveLoaded){
-      window._archiveLoaded = true;
-      loadArchive('feature_films','الكل','', document.querySelector('.arch-cat'));
-    }
-  }
-};
+// archive showPage مدمج في الدالة الأصلية أعلاه
 
 // بناء URL البحث — يتعامل مع كل أنواع المجموعات
 function buildArchiveUrl(collection, subject, query, page){
@@ -4042,26 +4055,25 @@ function renderArchiveGrid(items, append, label){
 
   const html = items.map(item => {
     const id = item.identifier || '';
-    const title = (item.title || 'بدون عنوان').substring(0, 50);
+    const rawTitle = (item.title || 'بدون عنوان').substring(0, 45);
     const year = item.year || '';
-    const thumb = id ? `https://archive.org/services/img/${id}` : '';
-    const safeid = id.replace(/'/g,"\\'" ).replace(/"/g,'&quot;');
-    const safetitle = title.replace(/'/g,"\\'").replace(/"/g,'&quot;');
-    return `
-      <div class="arch-card" onclick="openArchiveFilm('${safeid}','${safetitle}','${year}')">
-        <div class="arch-thumb">
-          ${thumb
-            ? `<img loading="lazy" src="${thumb}" alt="${safetitle}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
-            : ''}
-          <div class="arch-thumb-def" style="${thumb?'display:none':'display:flex'}">${icon}</div>
-          <div class="arch-badge" style="background:rgba(16,185,129,.9)">${badgeLabel}</div>
-          <div class="arch-overlay"><button class="arch-play">▶</button></div>
-        </div>
-        <div class="arch-info">
-          <div class="arch-title">${title}</div>
-          <div class="arch-year">${year ? '📅 ' + year : icon + ' كلاسيكي'}</div>
-        </div>
-      </div>`;
+    const thumb = id ? 'https://archive.org/services/img/' + id : '';
+    const safeid = id.replace(/'/g,"\'").replace(/"/g,'&quot;');
+    const safetitle = rawTitle.replace(/'/g,"\'").replace(/"/g,'&quot;');
+    const defHtml = '<div class="arch-thumb-def">' + icon + '<span>' + safetitle + '</span></div>';
+    const imgHtml = thumb
+      ? '<img loading="lazy" src="' + thumb + '" alt="' + safetitle + '" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center top" onerror="this.outerHTML=\'' + defHtml.replace(/'/g, "\\'") + '\'">'
+      : defHtml;
+    return '<div class="arch-card" onclick="openArchiveFilm(\'' + safeid + '\',\'' + safetitle + '\',\'' + year + '\')">'
+      + '<div class="arch-thumb">'
+      + imgHtml
+      + '<div class="arch-badge">' + badgeLabel + '</div>'
+      + '<div class="arch-overlay"><button class="arch-play">&#9654;</button></div>'
+      + '</div>'
+      + '<div class="arch-info">'
+      + '<div class="arch-title">' + rawTitle + '</div>'
+      + '<div class="arch-year">' + (year ? '📅 ' + year : icon + ' كلاسيكي') + '</div>'
+      + '</div></div>';
   }).join('');
 
   if(append){
